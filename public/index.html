@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#667eea">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Yard Manager</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{overflow:hidden;height:100%;touch-action:none}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#fff}
+    .header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:6px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;position:fixed;top:0;left:0;right:0;z-index:200;min-height:44px}
+    .header h1{font-size:1rem;white-space:nowrap}
+    .hdr-center{display:flex;align-items:center;gap:12px;flex:1;justify-content:center}
+    .hdr-right{display:flex;align-items:center;gap:5px}
+    .line-group{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.25);padding:4px 10px;border-radius:8px}
+    .line-group label{font-size:.75rem;font-weight:700;white-space:nowrap}
+    .line-group.tl1 label{color:#7ec8e3}.line-group.tl2 label{color:#f9a825}
+    .search-wrap{position:relative;display:inline-block}
+    .search-trigger{background:rgba(255,255,255,0.15);color:#fff;border:none;padding:4px 8px;border-radius:6px;font-size:.75rem;min-width:120px;cursor:pointer;text-align:left}
+    .search-dropdown{display:none;position:absolute;top:100%;left:0;background:#252542;border-radius:8px;z-index:300;min-width:200px;max-height:250px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:6px}
+    .search-dropdown.open{display:block}
+    .search-dropdown input{width:100%;padding:6px;border:none;border-radius:6px;background:rgba(255,255,255,0.1);color:#fff;font-size:.75rem;outline:none;margin-bottom:4px}
+    .search-dropdown .opt{padding:6px;border-radius:4px;cursor:pointer;font-size:.75rem;color:#ddd}
+    .search-dropdown .opt:hover{background:rgba(255,255,255,0.1)}
+    .online-dot{width:10px;height:10px;border-radius:50%;background:#e74c3c;display:inline-block}.online-dot.on{background:#2ecc71}
+    .status-text{font-size:.7rem;font-weight:600;color:#fff;margin-right:6px}
+    .pending-label{font-size:.7rem;font-weight:600;color:rgba(255,255,255,0.7)}
+    .pending-badge{background:#e74c3c;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:10px;font-weight:700}.pending-badge.zero{background:#2ecc71}
+    .hdr-btn{padding:3px 7px;border:none;border-radius:5px;font-size:.7rem;cursor:pointer;font-weight:600;color:#fff}
+    .hdr-btn.zoom{background:rgba(255,255,255,0.15);font-size:.85rem}
+    .hdr-btn.admin{background:rgba(255,255,255,0.15);font-size:.75rem}.hdr-btn.admin.active{background:#e67e22}
+    .viewport{position:fixed;top:0;left:0;right:0;bottom:0;overflow:hidden;cursor:grab;padding-top:44px}.viewport:active{cursor:grabbing}
+    .yard-world{position:absolute;top:44px;left:0;transform-origin:0 0}
+
+    /* Sparse grid container */
+    .grid-container{position:relative}
+    .gc{position:absolute;width:58px;height:30px;border-radius:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:5.5px;font-weight:700;text-align:center;user-select:none;overflow:hidden;white-space:nowrap;padding:1px 2px;line-height:1.1}
+    .gc.selected{outline:3px solid #fff;outline-offset:-2px;z-index:2;box-shadow:0 0 8px rgba(255,255,255,0.6)}
+    .gc.move-target{outline:2px dashed #f1c40f;outline-offset:-2px}
+    .gc.moving{opacity:.5}
+    .gc.blocked{position:absolute}.gc.blocked::before{content:'';position:absolute;inset:0;border:3px solid #e74c3c;border-radius:2px;pointer-events:none}.gc.blocked::after{content:'✕';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;color:rgba(231,76,60,0.7);font-weight:900;pointer-events:none}
+    /* Cell types */
+    .gc.wall{background:#111;color:#444}.gc.container-type{background:#555;color:#fff}.gc.afval-type{background:#795548;color:#fff}
+    .gc.bunker-type{background:rgba(192,57,43,0.12);color:rgba(255,255,255,0.15)}.gc.bunker-filled{background:#c0392b;color:#fff}
+    .gc.zak-num{background:rgba(255,255,255,0.08);color:#999;font-size:7px;cursor:default}
+    .gc.zak{background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.12)}
+    .gc.S01{background:#3498db;color:#fff}.gc.S02{background:#2980b9;color:#fff}.gc.S17{background:#f39c12;color:#000}
+    .gc.T01{background:#e74c3c;color:#fff}.gc.T02{background:#2ecc71;color:#fff}.gc.T17{background:#d35400;color:#fff}
+    .gc.Pellets{background:#f1c40f;color:#000}.gc.DVRMI050{background:#ff9800;color:#000}.gc.DVRNA050{background:#8bc34a;color:#000}
+    .gc.LUMPS{background:#87CEEB;color:#000}.gc.Quarantine{background:#9b59b6;color:#fff}
+    /* Edit mode: show grid background */
+    .gc.edit-empty{background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.06)}
+    .gc.grid-num{background:transparent;color:rgba(255,255,255,0.25);font-size:7px;cursor:default;border:none}
+
+    .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;padding:16px}.modal.active{display:flex}
+    .modal-content{background:#252542;border-radius:14px;padding:18px;max-width:380px;width:100%;max-height:85vh;overflow-y:auto}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.modal-header h2{font-size:.9rem}
+    .close-btn{background:rgba(255,255,255,0.1);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;cursor:pointer}
+    .type-grid{display:flex;flex-direction:column;gap:5px}
+    .type-section-label{font-size:.65rem;color:#888;font-weight:600;margin-top:4px;text-transform:uppercase}
+    .type-row{display:flex;gap:5px;flex-wrap:wrap}
+    .type-btn{padding:10px 12px;border-radius:7px;font-weight:600;font-size:.75rem;border:none;cursor:pointer;flex:1;min-width:80px;text-align:center}
+    .type-btn.S01{background:#3498db;color:#fff}.type-btn.S02{background:#2980b9;color:#fff}.type-btn.S17{background:#f39c12;color:#000}
+    .type-btn.T01{background:#e74c3c;color:#fff}.type-btn.T02{background:#2ecc71;color:#fff}.type-btn.T17{background:#d35400;color:#fff}
+    .type-btn.DVRMI050{background:#ff9800;color:#000}.type-btn.DVRNA050{background:#8bc34a;color:#000}
+    .type-btn.LUMPS{background:#87CEEB;color:#000}.type-btn.Quarantine{background:#9b59b6;color:#fff}
+    .type-btn.Clear{background:rgba(255,255,255,0.1);color:#fff}.type-btn:disabled{opacity:.3;cursor:not-allowed}
+    .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#2ecc71;color:#fff;padding:7px 14px;border-radius:7px;font-weight:600;z-index:2000;opacity:0;transition:opacity .3s;font-size:.75rem}.toast.show{opacity:1}
+    .login-input{width:100%;padding:10px;border:none;border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:.85rem;outline:none;margin-bottom:8px}
+    .login-btn{width:100%;padding:10px;border:none;border-radius:8px;background:#667eea;color:#fff;font-weight:700;font-size:.85rem;cursor:pointer}
+    .login-error{color:#e74c3c;font-size:.75rem;margin-top:4px}
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>Yard Manager</h1>
+    <div class="hdr-center">
+      <div class="line-group tl1"><label>TL1</label><div class="search-wrap"><button class="search-trigger" id="trigTL1" onclick="toggleSearchDD('TL1')">-- Materiaal --</button><div class="search-dropdown" id="ddTL1"><input type="text" placeholder="Zoek..." id="searchTL1" oninput="filterDD('TL1')"><div id="optsTL1"></div></div></div><input type="hidden" id="selTL1" value=""></div>
+      <div class="line-group tl2"><label>TL2</label><div class="search-wrap"><button class="search-trigger" id="trigTL2" onclick="toggleSearchDD('TL2')">-- Materiaal --</button><div class="search-dropdown" id="ddTL2"><input type="text" placeholder="Zoek..." id="searchTL2" oninput="filterDD('TL2')"><div id="optsTL2"></div></div></div><input type="hidden" id="selTL2" value=""></div>
+    </div>
+    <div class="hdr-right">
+      <span class="online-dot" id="statusDot"></span><span class="status-text" id="statusText">Offline</span>
+      <span class="pending-label">Sync:</span><span class="pending-badge" id="pendingCount">0</span>
+      <button class="hdr-btn zoom" onclick="zoomIn()">+</button><button class="hdr-btn zoom" onclick="zoomOut()">−</button>
+      <button class="hdr-btn admin" id="adminBtn" onclick="toggleAdmin()">🔒</button>
+      <button class="hdr-btn" id="saveBtn" onclick="saveLayoutNow()" style="display:none;background:#27ae60;color:#fff;border-color:#27ae60;font-size:.8rem">💾 Opslaan</button>
+    </div>
+  </header>
+  <div class="viewport" id="viewport"><div class="yard-world" id="yardWorld"><div class="grid-container" id="gridContainer"></div></div></div>
+  <div class="modal" id="modal"><div class="modal-content"><div class="modal-header"><h2 id="modalTitle">Selecteer</h2><div class="close-btn" onclick="closeModal()">×</div></div><div class="type-grid" id="typeGrid"></div></div></div>
+  <div class="modal" id="loginModal"><div class="modal-content"><div class="modal-header"><h2>Inloggen (Admin)</h2><div class="close-btn" onclick="closeLogin()">×</div></div><input class="login-input" id="loginUser" placeholder="Gebruikersnaam"><input class="login-input" id="loginPass" type="password" placeholder="Wachtwoord"><button class="login-btn" onclick="doLogin()">Inloggen</button><div class="login-error" id="loginError"></div></div></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const CW = 59, CH = 31; // cell width/height including gap
+    const GRID_SIZE = 100;
+    const STORAGE_KEY = 'yard_layout_v2';
+    const ZAK_DATA_KEY = 'yard_zak_data';
+    const QUEUE_KEY = 'yard_sync_queue';
+    const SYNC_INTERVAL = 5000;
+    const TL_SEL_KEY = 'yard_tl_selections';
+
+    // Layout: sparse map of "col,row" -> { cellType, label, meta }
+    // cellType: wall, container-type, afval-type, bunker-type, zak-num, zak, custom-XXX
+    let layout = {}; // "col,row" -> { cellType, label, meta }
+    let zakData = {}; // "row-layer" -> { type, cssClass, blocked, updated_at }
+    let cellElements = {}; // "col,row" -> DOM element
+
+    let selectedCells = [], syncInProgress = false, materials = [], allMaterialsIncTest = [], allMaterialNames = [];
+    let isMoving = false, movingCells = [], moveTargetRow = null, adminMode = false;
+    let scale = 1, panX = 0, panY = 0, isDragging = false, dragMoved = false, dragStartX, dragStartY, startPanX, startPanY;
+    let lastTouchDist = 0, twoFingerStartX = 0, twoFingerStartY = 0;
+    let isSelecting = false, selectStartCell = null;
+    const MIN_SCALE = 0.1, MAX_SCALE = 5;
+
+    // ── Default layout: zakken ──
+    function getDefaultLayout() {
+      const L = {};
+      function set(c, r, type, label, meta) { L[`${c},${r}`] = { cellType: type, label: label || '', meta: meta || {} }; }
+      // Top section: rij 120..66 — numbers at row 0 and row 14, zak cells rows 1-13
+      // Rightmost zak (rij 66) at col 94 (5 from right edge), rij 120 at col 40
+      for (let rij = 120; rij >= 66; rij--) {
+        const col = 94 - (rij - 66);
+        set(col, 0, 'zak-num', String(rij), { rij });
+        set(col, 14, 'zak-num', String(rij), { rij });
+        for (let l = 1; l <= 13; l++) set(col, l, 'zak', '', { rij, layer: l });
+      }
+      // Bottom section: E1,E2,E3 + rij 55..1 — starts at row 17
+      const botY = 17;
+      // Rij 1 at col 94, rij 55 at col 40, E cols at 37,38,39
+      for (let i = 0; i < 3; i++) {
+        set(37 + i, botY, 'zak-num', '', { rij: 'E' + (i + 1) });
+        set(37 + i, botY + 14, 'zak-num', '', { rij: 'E' + (i + 1) });
+        for (let l = 1; l <= 13; l++) set(37 + i, botY + l, 'zak', '', { rij: 'E' + (i + 1), layer: l });
+      }
+      // Gap col 39->40
+      // Rij 55 at col 40, rij 1 at col 94
+      for (let rij = 55; rij >= 1; rij--) {
+        const col = 40 + (55 - rij);
+        set(col, botY, 'zak-num', String(rij), { rij });
+        set(col, botY + 14, 'zak-num', String(rij), { rij });
+        for (let l = 1; l <= 13; l++) set(col, botY + l, 'zak', '', { rij, layer: l });
+      }
+      return L;
+    }
+
+    // ── Render ──
+    function renderGrid() {
+      const container = document.getElementById('gridContainer');
+      container.innerHTML = '';
+      cellElements = {};
+
+      if (adminMode) {
+        // Full 200x200 grid with numbering
+        // Column numbers at top (row -1)
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const el = document.createElement('div');
+          el.className = 'gc grid-num';
+          el.style.left = ((c + 1) * CW) + 'px'; // +1 to leave room for row numbers
+          el.style.top = '0px';
+          el.textContent = c + 1;
+          container.appendChild(el);
+        }
+        // Row numbers on left (col -1)
+        for (let r = 0; r < GRID_SIZE; r++) {
+          const el = document.createElement('div');
+          el.className = 'gc grid-num';
+          el.style.left = '0px';
+          el.style.top = ((r + 1) * CH) + 'px';
+          el.textContent = r + 1;
+          container.appendChild(el);
+        }
+        // All cells
+        for (let r = 0; r < GRID_SIZE; r++) {
+          for (let c = 0; c < GRID_SIZE; c++) {
+            const key = `${c},${r}`;
+            const def = layout[key];
+            if (def) {
+              createCellElement(container, c, r, def, true);
+            } else {
+              const el = document.createElement('div');
+              el.className = 'gc edit-empty';
+              el.style.left = ((c + 1) * CW) + 'px';
+              el.style.top = ((r + 1) * CH) + 'px';
+              el.dataset.col = c;
+              el.dataset.row = r;
+              container.appendChild(el);
+              cellElements[key] = el;
+            }
+          }
+        }
+      } else {
+        // Normal mode: only defined cells, no offset needed
+        for (const [key, def] of Object.entries(layout)) {
+          const [c, r] = key.split(',').map(Number);
+          createCellElement(container, c, r, def, false);
+        }
+      }
+      loadZakDataToGrid();
+    }
+
+    function createCellElement(container, col, row, def, editMode) {
+      const key = `${col},${row}`;
+      const el = document.createElement('div');
+      // In edit mode, offset by 1 cell for numbering
+      const offsetX = editMode ? (col + 1) * CW : col * CW;
+      const offsetY = editMode ? (row + 1) * CH : row * CH;
+      el.style.left = offsetX + 'px';
+      el.style.top = offsetY + 'px';
+      el.dataset.col = col;
+      el.dataset.row = row;
+      el.dataset.celltype = def.cellType;
+
+      if (def.meta && def.meta.rij !== undefined) {
+        el.dataset.rij = def.meta.rij;
+        if (def.meta.layer) el.dataset.layer = def.meta.layer;
+      }
+
+      if (def.cellType === 'zak-num') {
+        el.className = 'gc zak-num';
+        el.textContent = def.label || '';
+      } else if (def.cellType === 'zak') {
+        el.className = 'gc zak';
+      } else if (def.cellType === 'wall') {
+        el.className = 'gc wall';
+      } else if (def.cellType === 'container-type') {
+        el.className = 'gc container-type';
+        el.textContent = 'Container';
+      } else if (def.cellType === 'afval-type') {
+        el.className = 'gc afval-type';
+        el.textContent = 'Afval';
+      } else if (def.cellType === 'bunker-type') {
+        el.className = 'gc bunker-type';
+      } else {
+        el.className = 'gc ' + def.cellType;
+        el.textContent = def.label || '';
+      }
+
+      container.appendChild(el);
+      cellElements[key] = el;
+    }
+
+    function getLayoutBounds() {
+      let minC = 999, maxC = -1, minR = 999, maxR = -1;
+      for (const key of Object.keys(layout)) {
+        const [c, r] = key.split(',').map(Number);
+        if (c < minC) minC = c; if (c > maxC) maxC = c;
+        if (r < minR) minR = r; if (r > maxR) maxR = r;
+      }
+      if (maxC === -1) { minC = 0; maxC = 20; minR = 0; maxR = 20; }
+      return { minC, maxC, minR, maxR };
+    }
+
+    // ── Cell interaction ──
+    function getCellAt(x, y) {
+      const el = document.elementFromPoint(x, y);
+      const check = (e) => {
+        if (!e || !e.classList.contains('gc')) return null;
+        if (!adminMode) {
+          if (e.classList.contains('wall') || e.classList.contains('container-type') || e.classList.contains('afval-type')) return null;
+          if (e.dataset.celltype === 'zak-num') return null;
+          const key = `${e.dataset.col},${e.dataset.row}`;
+          const def = layout[key];
+          if (def && def.meta && def.meta.editable === false) return null;
+        }
+        return e;
+      };
+      if (el && el.classList.contains('gc')) return check(el);
+      if (el && el.parentElement && el.parentElement.classList.contains('gc')) return check(el.parentElement);
+      return null;
+    }
+    function clearSelection() { selectedCells.forEach(c => c.classList.remove('selected')); selectedCells = []; }
+    function clearMoveTargets() { document.querySelectorAll('.gc.move-target').forEach(c => c.classList.remove('move-target')); }
+
+    function updateSelection(sc, ec) {
+      clearSelection();
+      if (!sc || !ec) return;
+      const c1 = parseInt(sc.dataset.col), r1 = parseInt(sc.dataset.row);
+      const c2 = parseInt(ec.dataset.col), r2 = parseInt(ec.dataset.row);
+
+      // Zak cells: vertical only (same col)
+      if (sc.dataset.celltype === 'zak' && ec.dataset.celltype === 'zak' && sc.dataset.rij === ec.dataset.rij) {
+        for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+          const el = cellElements[`${c1},${r}`];
+          if (el && el.dataset.celltype === 'zak') { el.classList.add('selected'); selectedCells.push(el); }
+        }
+        return;
+      }
+
+      // General: rectangle
+      for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+        for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+          const el = cellElements[`${c},${r}`];
+          if (el && (!adminMode ? !el.classList.contains('wall') : true)) {
+            el.classList.add('selected'); selectedCells.push(el);
+          }
+        }
+      }
+    }
+
+    // ── Pan/Zoom ──
+    function applyTransform() { document.getElementById('yardWorld').style.transform = `translate(${panX}px,${panY}px) scale(${scale})`; }
+    function zoomIn() { scale = Math.min(MAX_SCALE, scale * 1.3); applyTransform(); }
+    function zoomOut() { scale = Math.max(MIN_SCALE, scale / 1.3); applyTransform(); }
+    function onMouseDown(e) {
+      if (e.target.closest('.modal,.header')) return;
+      if (isMoving) { const c = getCellAt(e.clientX, e.clientY); if (c && c.dataset.rij) { moveTargetRow = c.dataset.rij; if (confirm(`Verplaatsen naar rij ${moveTargetRow}?`)) executeMove(); } endMoveMode(); e.preventDefault(); return; }
+      const cell = getCellAt(e.clientX, e.clientY);
+      if (cell) { isSelecting = true; selectStartCell = cell; dragMoved = false; clearSelection(); cell.classList.add('selected'); selectedCells = [cell]; e.preventDefault(); return; }
+      isDragging = true; dragMoved = false; dragStartX = e.clientX; dragStartY = e.clientY; startPanX = panX; startPanY = panY;
+    }
+    function onMouseMove(e) {
+      if (isMoving) { const c = getCellAt(e.clientX, e.clientY); if (c) highlightMoveTarget(c); return; }
+      if (isSelecting && selectStartCell) { const c = getCellAt(e.clientX, e.clientY); if (c) updateSelection(selectStartCell, c); return; }
+      if (!isDragging) return; const dx = e.clientX - dragStartX, dy = e.clientY - dragStartY; if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true; panX = startPanX + dx; panY = startPanY + dy; applyTransform();
+    }
+    function onMouseUp() { if (isMoving) return; if (isSelecting) { isSelecting = false; if (selectedCells.length > 0) openModalMulti(); return; } isDragging = false; }
+    function onWheel(e) { if (e.target.closest('.modal,.header')) return; e.preventDefault(); const f = e.deltaY < 0 ? 1.12 : 0.88, ns = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * f)); const rect = document.getElementById('viewport').getBoundingClientRect(); const cx = e.clientX - rect.left, cy = e.clientY - rect.top; panX = cx - (cx - panX) * (ns / scale); panY = cy - (cy - panY) * (ns / scale); scale = ns; applyTransform(); }
+    function dist2(t) { const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY; return Math.sqrt(dx * dx + dy * dy); }
+    function onTouchStart(e) { if (e.target.closest('.modal,.header')) return; if (isMoving && e.touches.length === 1) { const c = getCellAt(e.touches[0].clientX, e.touches[0].clientY); if (c && c.dataset.rij) { moveTargetRow = c.dataset.rij; if (confirm(`Verplaatsen naar rij ${moveTargetRow}?`)) executeMove(); } endMoveMode(); e.preventDefault(); return; } if (e.touches.length === 1) { const c = getCellAt(e.touches[0].clientX, e.touches[0].clientY); if (c) { isSelecting = true; selectStartCell = c; clearSelection(); c.classList.add('selected'); selectedCells = [c]; e.preventDefault(); return; } isDragging = true; dragMoved = false; dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY; startPanX = panX; startPanY = panY; } else if (e.touches.length === 2) { isSelecting = false; isDragging = false; lastTouchDist = dist2(e.touches); twoFingerStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2; twoFingerStartY = (e.touches[0].clientY + e.touches[1].clientY) / 2; } }
+    function onTouchMove(e) { if (e.target.closest('.modal,.header')) return; e.preventDefault(); if (isMoving && e.touches.length === 1) { const c = getCellAt(e.touches[0].clientX, e.touches[0].clientY); if (c) highlightMoveTarget(c); return; } if (e.touches.length === 1 && isSelecting && selectStartCell) { const c = getCellAt(e.touches[0].clientX, e.touches[0].clientY); if (c) updateSelection(selectStartCell, c); return; } if (e.touches.length === 1 && isDragging) { const dx = e.touches[0].clientX - dragStartX, dy = e.touches[0].clientY - dragStartY; if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true; panX = startPanX + dx; panY = startPanY + dy; applyTransform(); } else if (e.touches.length === 2) { const d = dist2(e.touches), cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2; const f = d / lastTouchDist, ns = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * f)); const rect = document.getElementById('viewport').getBoundingClientRect(); const rx = cx - rect.left, ry = cy - rect.top; panX = rx - (rx - panX) * (ns / scale); panY = ry - (ry - panY) * (ns / scale); scale = ns; lastTouchDist = d; panX += cx - twoFingerStartX; panY += cy - twoFingerStartY; twoFingerStartX = cx; twoFingerStartY = cy; applyTransform(); } }
+    function onTouchEnd(e) { if (e.touches.length < 2) lastTouchDist = 0; if (e.touches.length === 0) { if (isMoving) return; if (isSelecting && selectedCells.length > 0) { isSelecting = false; openModalMulti(); return; } isSelecting = false; isDragging = false; } }
+
+    // ── Move ──
+    function startMoveMode() { const zd = getZakData(); movingCells = selectedCells.filter(c => c.dataset.rij && c.dataset.layer).map(c => { const k = `${c.dataset.rij}-${c.dataset.layer}`; return { layer: parseInt(c.dataset.layer), rij: c.dataset.rij, data: zd[k] || null, cell: c }; }).filter(m => m.data && m.data.type !== 'Empty'); if (!movingCells.length) { showToast('Geen gevulde vakken'); return; } isMoving = true; movingCells.forEach(m => m.cell.classList.add('moving')); clearSelection(); showToast('Tik op doelrij...'); }
+    function highlightMoveTarget(tc) { clearMoveTargets(); if (!tc || !tc.dataset.rij) return; moveTargetRow = tc.dataset.rij; movingCells.forEach(m => { const t = document.querySelector(`.gc[data-rij="${moveTargetRow}"][data-layer="${m.layer}"]`); if (t) t.classList.add('move-target'); }); }
+    function executeMove() { if (!moveTargetRow || !movingCells.length) return; const src = movingCells[0].rij; if (src === moveTargetRow) { showToast('Zelfde rij'); return; } const zd = getZakData(), queue = getQueue(), ts = Date.now(); if (!movingCells.every(m => { const d = zd[`${moveTargetRow}-${m.layer}`]; return !d || d.type === 'Empty'; })) { showToast('Niet leeg!'); return; } movingCells.forEach(m => { const sk = `${src}-${m.layer}`, dk = `${moveTargetRow}-${m.layer}`; zd[sk] = { type: 'Empty', cssClass: 'Empty', updated_at: ts }; const sc = document.querySelector(`.gc[data-rij="${src}"][data-layer="${m.layer}"]`); if (sc) applyZakVisual(sc, 'Empty', ''); let i = queue.findIndex(c => c.row_num == src && c.layer === m.layer); if (i !== -1) queue.splice(i, 1); queue.push({ row_num: src, layer: m.layer, type: 'Empty', updated_at: ts }); zd[dk] = { ...m.data, updated_at: ts }; const tc = document.querySelector(`.gc[data-rij="${moveTargetRow}"][data-layer="${m.layer}"]`); if (tc) applyZakVisual(tc, m.data.cssClass, m.data.type); i = queue.findIndex(c => c.row_num == moveTargetRow && c.layer === m.layer); if (i !== -1) queue.splice(i, 1); queue.push({ row_num: moveTargetRow, layer: m.layer, type: m.data.type, updated_at: ts }); }); saveZakData(zd); saveQueue(queue); showToast(`${movingCells.length} verplaatst`); }
+    function endMoveMode() { movingCells.forEach(m => m.cell.classList.remove('moving')); clearMoveTargets(); clearSelection(); isMoving = false; movingCells = []; moveTargetRow = null; }
+
+    // ── Zak visual ──
+    function applyZakVisual(cell, cssClass, label) {
+      const base = 'gc zak';
+      if (!cssClass || cssClass === 'Empty' || !label) { cell.className = base; cell.innerHTML = ''; cell.title = ''; return; }
+      cell.className = `${base} ${cssClass}`; cell.title = label || '';
+      const parts = (label || '').split(' ');
+      if (parts.length >= 2) cell.innerHTML = `<span>${cssClass}</span><span style="font-size:4px;opacity:0.85">${parts.slice(1).join(' ')}</span>`;
+      else cell.innerHTML = `<span>${label}</span>`;
+    }
+    function cssFromType(t) { if (!t || t === 'Empty') return 'Empty'; if (t.startsWith('S01') || t.startsWith('TL1')) return 'S01'; if (t.startsWith('S02')) return 'S02'; if (t.startsWith('S17')) return 'S17'; if (t.startsWith('T01') || t.startsWith('TL2')) return 'T01'; if (t.startsWith('T02')) return 'T02'; if (t.startsWith('T17')) return 'T17'; if (t.startsWith('DVRMI050')) return 'DVRMI050'; if (t.startsWith('DVRNA050')) return 'DVRNA050'; if (t === 'Pellets') return 'Pellets'; if (t === 'LUMPS') return 'LUMPS'; if (t.startsWith('Q') || t === 'Quarantine') return 'Quarantine'; return 'S01'; }
+
+    // ── Admin ──
+    function toggleAdmin() { if (adminMode) { adminMode = false; document.getElementById('adminBtn').classList.remove('active'); document.getElementById('adminBtn').textContent = '🔒'; document.getElementById('saveBtn').style.display = 'none'; renderGrid(); showToast('Bewerk-modus uit'); return; } document.getElementById('loginError').textContent = ''; document.getElementById('loginUser').value = ''; document.getElementById('loginPass').value = ''; document.getElementById('loginModal').classList.add('active'); }
+    function closeLogin() { document.getElementById('loginModal').classList.remove('active'); }
+    async function doLogin() { const user = document.getElementById('loginUser').value.trim(), pass = document.getElementById('loginPass').value; if (!user || !pass) { document.getElementById('loginError').textContent = 'Vul beide velden in'; return; } try { const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pass }) }); const data = await res.json(); if (res.ok && data.ok) { adminMode = true; document.getElementById('adminBtn').classList.add('active'); document.getElementById('adminBtn').textContent = '🔓 ' + data.username; document.getElementById('saveBtn').style.display = ''; closeLogin(); renderGrid(); showToast('Bewerk-modus aan'); } else { document.getElementById('loginError').textContent = data.error || 'Mislukt'; } } catch (e) { document.getElementById('loginError').textContent = 'Server niet bereikbaar'; } }
+
+    // ── Modal ──
+    function openModalMulti() {
+      const count = selectedCells.length; if (!count) return;
+      // Prevent double popup
+      if (document.getElementById('modal').classList.contains('active')) return;
+      
+      const first = selectedCells[0];
+      const ct = first.dataset.celltype || '';
+      const isZak = ct === 'zak';
+      const isBunker = ct === 'bunker-type' || ct === 'bunker-filled' || first.classList.contains('bunker-type') || first.classList.contains('bunker-filled');
+      const isEditEmpty = first.classList.contains('edit-empty');
+
+      if (adminMode && (isEditEmpty || (!isZak && !isBunker))) {
+        document.getElementById('modalTitle').textContent = `Layout (${count} vakken)`;
+        buildAdminModal();
+      } else if (adminMode && isBunker) {
+        document.getElementById('modalTitle').textContent = `Layout (${count} vakken)`;
+        buildAdminModal();
+      } else if (isZak) {
+        if (count === 1) document.getElementById('modalTitle').textContent = `Rij ${first.dataset.rij} – Zak ${first.dataset.layer}`;
+        else { const ls = selectedCells.map(c => c.dataset.layer); document.getElementById('modalTitle').textContent = `Rij ${first.dataset.rij} – Zak ${Math.min(...ls)}–${Math.max(...ls)} (${count})`; }
+        buildZakModal();
+      } else if (isBunker) {
+        document.getElementById('modalTitle').textContent = `Balen (${count})`;
+        buildBunkerModal();
+      } else { clearSelection(); return; }
+      document.getElementById('modal').classList.add('active');
+    }
+    function closeModal() { document.getElementById('modal').classList.remove('active'); clearSelection(); }
+
+    // ── Admin modal ──
+    function buildAdminModal() {
+      const g = document.getElementById('typeGrid'); g.innerHTML = '';
+
+      // Verwijderen — bovenaan
+      const rDel = document.createElement('div'); rDel.className = 'type-row'; rDel.style.marginBottom = '8px';
+      const eb = document.createElement('button'); eb.className = 'type-btn'; eb.style.cssText = 'background:#e74c3c;color:#fff;';
+      eb.textContent = '🗑 Verwijderen';
+      eb.addEventListener('click', () => { if (confirm('Geselecteerde vlakken verwijderen?')) removeFromLayout(); });
+      rDel.appendChild(eb); g.appendChild(rDel);
+
+      // Vaste elementen
+      const r1 = document.createElement('div'); r1.className = 'type-row'; r1.style.flexWrap = 'wrap';
+      [['wall', '▮ Muur', '#111', '#666'], ['container-type', '📦 Container', '#555', '#fff'], ['afval-type', '🗑 Afval', '#795548', '#fff']].forEach(([cls, txt, bg, fg]) => {
+        const b = document.createElement('button'); b.className = 'type-btn'; b.style.cssText = `background:${bg};color:${fg};min-width:100px;`;
+        b.textContent = txt; b.addEventListener('click', () => setLayoutType(cls, false)); r1.appendChild(b);
+      });
+      g.appendChild(r1);
+
+      // Editable types
+      const l2 = document.createElement('div'); l2.className = 'type-section-label'; l2.textContent = 'Bewerkbare elementen'; g.appendChild(l2);
+      const r2 = document.createElement('div'); r2.className = 'type-row'; r2.style.flexWrap = 'wrap';
+      [['bunker-type', '🟥 Balen vlak', 'rgba(192,57,43,0.4)', '#fff'], ['zak', '📦 Zak vlak', 'rgba(52,152,219,0.3)', '#fff'], ['zak-num', '🔢 Zak nummer', 'rgba(255,255,255,0.15)', '#999']].forEach(([cls, txt, bg, fg]) => {
+        const b = document.createElement('button'); b.className = 'type-btn'; b.style.cssText = `background:${bg};color:${fg};min-width:100px;`;
+        b.textContent = txt; b.addEventListener('click', () => setLayoutType(cls, true)); r2.appendChild(b);
+      });
+      g.appendChild(r2);
+
+      // Custom types
+      const l3 = document.createElement('div'); l3.className = 'type-section-label'; l3.textContent = '+ Nieuw element toevoegen'; g.appendChild(l3);
+      const nameInp = document.createElement('input'); nameInp.className = 'login-input'; nameInp.placeholder = 'Naam (bijv. Opslag, Dock, ...)'; nameInp.style.marginBottom = '4px'; g.appendChild(nameInp);
+      const colorInp = document.createElement('input'); colorInp.type = 'color'; colorInp.value = '#e67e22'; colorInp.style.cssText = 'width:100%;height:36px;border:none;border-radius:8px;cursor:pointer;margin-bottom:4px;'; g.appendChild(colorInp);
+      const editCheck = document.createElement('label'); editCheck.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:0.75rem;color:#aaa;margin-bottom:8px;';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; editCheck.appendChild(cb);
+      editCheck.appendChild(document.createTextNode('Bewerkbaar in normale modus')); g.appendChild(editCheck);
+      const addBtn = document.createElement('button'); addBtn.className = 'login-btn'; addBtn.textContent = '+ Toevoegen';
+      addBtn.addEventListener('click', () => {
+        const name = nameInp.value.trim(); if (!name) { showToast('Vul een naam in'); return; }
+        const cls = 'custom-' + name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const color = colorInp.value;
+        const editable = cb.checked;
+        // Save custom type definition
+        const customTypes = JSON.parse(localStorage.getItem('yard_custom_types') || '[]');
+        if (!customTypes.find(t => t.cls === cls)) {
+          customTypes.push({ cls, name, color, editable });
+          localStorage.setItem('yard_custom_types', JSON.stringify(customTypes));
+        }
+        // Inject CSS for this custom type
+        injectCustomCSS(cls, color);
+        setLayoutType(cls, editable, name);
+      });
+      g.appendChild(addBtn);
+
+      // Show existing custom types
+      const customTypes = JSON.parse(localStorage.getItem('yard_custom_types') || '[]');
+      if (customTypes.length > 0) {
+        const l4 = document.createElement('div'); l4.className = 'type-section-label'; l4.textContent = 'Custom elementen'; g.appendChild(l4);
+        const r4 = document.createElement('div'); r4.className = 'type-row'; r4.style.flexWrap = 'wrap';
+        customTypes.forEach(ct => {
+          const b = document.createElement('button'); b.className = 'type-btn';
+          b.style.cssText = `background:${ct.color};color:#fff;min-width:100px;`;
+          b.textContent = (ct.editable ? '✎ ' : '🔒 ') + ct.name;
+          b.addEventListener('click', () => setLayoutType(ct.cls, ct.editable, ct.name));
+          r4.appendChild(b);
+        });
+        g.appendChild(r4);
+      }
+
+      // Zak-num rij instellen
+      if (selectedCells.length === 1 && selectedCells[0].dataset.celltype === 'zak-num') {
+        const l5 = document.createElement('div'); l5.className = 'type-section-label'; l5.textContent = 'Rij nummer instellen'; g.appendChild(l5);
+        const inp = document.createElement('input'); inp.type = 'number'; inp.placeholder = 'Rij nummer...'; inp.className = 'login-input';
+        inp.value = selectedCells[0].dataset.rij || '';
+        const sb = document.createElement('button'); sb.className = 'login-btn'; sb.textContent = 'Opslaan';
+        sb.addEventListener('click', () => setZakNumRij(inp.value));
+        g.appendChild(inp); g.appendChild(sb);
+      }
+    }
+
+    function injectCustomCSS(cls, color) {
+      if (document.getElementById('css-' + cls)) return;
+      const style = document.createElement('style'); style.id = 'css-' + cls;
+      style.textContent = `.gc.${cls}{background:${color};color:#fff} .gc.${cls}-filled{background:${color};color:#fff;opacity:0.9}`;
+      document.head.appendChild(style);
+    }
+
+    function loadCustomCSS() {
+      const customTypes = JSON.parse(localStorage.getItem('yard_custom_types') || '[]');
+      customTypes.forEach(ct => injectCustomCSS(ct.cls, ct.color));
+    }
+
+    function setLayoutType(cellType, editable, label) {
+      const ts = Date.now();
+      const autoLabel = cellType === 'container-type' ? 'Container' : cellType === 'afval-type' ? 'Afval' : label || '';
+      selectedCells.forEach(el => {
+        const key = `${el.dataset.col},${el.dataset.row}`;
+        layout[key] = { cellType, label: autoLabel, meta: { editable: !!editable } };
+      });
+      saveLayout(); renderGrid(); closeModal(); showToast(`${selectedCells.length} ingesteld`);
+    }
+    function removeFromLayout() {
+      selectedCells.forEach(el => { delete layout[`${el.dataset.col},${el.dataset.row}`]; });
+      saveLayout(); renderGrid(); closeModal(); showToast('Verwijderd');
+    }
+    function setZakNumRij(rij) {
+      if (!rij) return;
+      const el = selectedCells[0]; const key = `${el.dataset.col},${el.dataset.row}`;
+      layout[key] = { cellType: 'zak-num', label: String(rij), meta: { rij } };
+      // Also update adjacent zak cells in same column to have this rij
+      const col = parseInt(el.dataset.col), row = parseInt(el.dataset.row);
+      // Find zak cells below/above this number
+      for (let r = row - 15; r <= row + 15; r++) {
+        const k = `${col},${r}`; const def = layout[k];
+        if (def && def.cellType === 'zak') { def.meta = { ...def.meta, rij, layer: def.meta.layer || Math.abs(r - row) }; }
+      }
+      saveLayout(); renderGrid(); closeModal(); showToast(`Rij ${rij} ingesteld`);
+    }
+
+    // ── Zak modal (exact same functionality) ──
+    function buildZakModal() {
+      const g = document.getElementById('typeGrid'); g.innerHTML = '';
+      const tl1 = document.getElementById('selTL1').value, tl2 = document.getElementById('selTL2').value;
+      addSec(g, 'Traylijn 1' + (tl1 ? ` — ${tl1}` : ' (geen)'), [['S01', 'S01', tl1 ? `TL1 ${tl1}` : '', !tl1], ['S02', 'S02', tl1 ? `TL1 ${tl1}` : '', !tl1], ['S17', 'S17', tl1 ? `S17 ${tl1}` : '', !tl1]]);
+      addSec(g, 'Traylijn 2' + (tl2 ? ` — ${tl2}` : ' (geen)'), [['T01', 'T01', tl2 ? `TL2 ${tl2}` : '', !tl2], ['T02', 'T02', tl2 ? `TL2 ${tl2}` : '', !tl2], ['T17', 'T17', tl2 ? `T17 ${tl2}` : '', !tl2]]);
+      const lp = document.createElement('div'); lp.className = 'type-section-label'; lp.textContent = 'Pellets'; g.appendChild(lp);
+      const rp = document.createElement('div'); rp.className = 'type-row'; rp.appendChild(mkZBtn('DVRMI050', 'DVRMI050 MIX', 'DVRMI050 MIX', false)); rp.appendChild(mkZBtn('DVRNA050', 'DVRNA050 Natural', 'DVRNA050 Natural', false)); g.appendChild(rp);
+      const lo = document.createElement('div'); lo.className = 'type-section-label'; lo.textContent = 'Overig'; g.appendChild(lo);
+      const ro = document.createElement('div'); ro.className = 'type-row'; ro.appendChild(mkZBtn('LUMPS', 'LUMPS', 'LUMPS', false));
+      const qb = document.createElement('button'); qb.className = 'type-btn Quarantine'; qb.textContent = 'Quarantine'; qb.addEventListener('click', () => showQ1()); ro.appendChild(qb); g.appendChild(ro);
+      const r4 = document.createElement('div'); r4.className = 'type-row'; r4.appendChild(mkZBtn('Clear', 'Leeg', '', false)); g.appendChild(r4);
+      // Acties
+      const zd = getZakData(); const hasFilled = selectedCells.some(c => { const d = zd[`${c.dataset.rij}-${c.dataset.layer}`]; return d && d.type !== 'Empty'; });
+      if (hasFilled) {
+        const la = document.createElement('div'); la.className = 'type-section-label'; la.textContent = 'Acties'; g.appendChild(la);
+        const ra = document.createElement('div'); ra.className = 'type-row';
+        const mb = document.createElement('button'); mb.className = 'type-btn'; mb.style.cssText = 'background:#e67e22;color:#fff;'; mb.textContent = '↕ Verplaatsen'; mb.addEventListener('click', () => { document.getElementById('modal').classList.remove('active'); startMoveMode(); }); ra.appendChild(mb);
+        const ab = selectedCells.every(c => c.classList.contains('blocked'));
+        const bb = document.createElement('button'); bb.className = 'type-btn'; bb.style.cssText = ab ? 'background:#27ae60;color:#fff;' : 'background:#c0392b;color:#fff;'; bb.textContent = ab ? '✓ Deblokkeer' : '✗ Blokkeer'; bb.addEventListener('click', () => { toggleBlock(!ab); closeModal(); }); ra.appendChild(bb);
+        g.appendChild(ra);
+      }
+    }
+    function addSec(g, label, btns) { const l = document.createElement('div'); l.className = 'type-section-label'; l.textContent = label; g.appendChild(l); const r = document.createElement('div'); r.className = 'type-row'; btns.forEach(b => r.appendChild(mkZBtn(...b))); g.appendChild(r); }
+    function mkZBtn(cls, lbl, val, dis) { const b = document.createElement('button'); b.className = `type-btn ${cls}`; b.textContent = lbl; b.disabled = dis; b.addEventListener('click', () => { if (cls === 'Clear') { if (confirm('Leegmaken?')) selZak('Empty', ''); } else selZak(cls, val); }); return b; }
+    function selZak(cls, label) { const ts = Date.now(), tv = cls === 'Empty' ? 'Empty' : label, zd = getZakData(), queue = getQueue(), n = selectedCells.length; selectedCells.forEach(c => { const rij = c.dataset.rij, layer = parseInt(c.dataset.layer), key = `${rij}-${layer}`; applyZakVisual(c, cls, label); c.classList.remove('blocked'); zd[key] = { type: tv, cssClass: cls, blocked: false, updated_at: ts }; const i = queue.findIndex(q => q.row_num == rij && q.layer === layer); if (i !== -1) queue.splice(i, 1); queue.push({ row_num: rij, layer, type: tv, updated_at: ts }); }); saveZakData(zd); saveQueue(queue); closeModal(); showToast(`${n} opgeslagen`); }
+    function toggleBlock(b) { const zd = getZakData(); selectedCells.forEach(c => { const k = `${c.dataset.rij}-${c.dataset.layer}`; const d = zd[k]; if (!d || d.type === 'Empty') return; d.blocked = b; zd[k] = d; c.classList.toggle('blocked', b); }); saveZakData(zd); showToast(b ? 'Geblokkeerd' : 'Gedeblokkeerd'); }
+
+    // Quarantine wizard
+    function showQ1() { const g = document.getElementById('typeGrid'); g.innerHTML = ''; document.getElementById('modalTitle').textContent = 'Quarantine — Type'; const bk = document.createElement('button'); bk.className = 'type-btn Clear'; bk.textContent = '← Terug'; bk.addEventListener('click', () => buildZakModal()); g.appendChild(bk); const r = document.createElement('div'); r.className = 'type-row'; ['S01', 'S02', 'S17', 'T01', 'T02', 'T17'].forEach(t => { const b = document.createElement('button'); b.className = `type-btn ${t}`; b.textContent = t; b.addEventListener('click', () => showQ2(t)); r.appendChild(b); }); g.appendChild(r); const r2 = document.createElement('div'); r2.className = 'type-row'; const pb = document.createElement('button'); pb.className = 'type-btn'; pb.style.background = '#f1c40f'; pb.style.color = '#000'; pb.textContent = 'Pellets'; pb.addEventListener('click', () => showQP()); r2.appendChild(pb); g.appendChild(r2); }
+    function showQ2(qt) { const g = document.getElementById('typeGrid'); g.innerHTML = ''; document.getElementById('modalTitle').textContent = `Q ${qt} — Materiaal`; const bk = document.createElement('button'); bk.className = 'type-btn Clear'; bk.textContent = '← Terug'; bk.addEventListener('click', () => showQ1()); g.appendChild(bk); const si = document.createElement('input'); si.type = 'text'; si.placeholder = 'Zoek...'; si.className = 'login-input'; g.appendChild(si); const li = document.createElement('div'); li.style.cssText = 'display:flex;flex-direction:column;gap:3px;'; g.appendChild(li); const bn = new Set(); materials.forEach(m => bn.add(m.name.replace(/\s+[ST]$/i, '').trim())); const so = [...bn].sort(); function ren(f) { li.innerHTML = ''; (f ? so.filter(n => n.toLowerCase().includes(f.toLowerCase())) : so).forEach(name => { const b = document.createElement('button'); b.className = 'type-btn'; b.style.cssText = 'background:rgba(155,89,182,0.3);color:#fff;flex:none;padding:8px;text-align:left;'; b.textContent = name; b.addEventListener('click', () => selZak('Quarantine', `Q ${qt} ${name}`)); li.appendChild(b); }); } ren(''); si.addEventListener('input', () => ren(si.value)); setTimeout(() => si.focus(), 100); }
+    function showQP() { const g = document.getElementById('typeGrid'); g.innerHTML = ''; document.getElementById('modalTitle').textContent = 'Q Pellets'; const bk = document.createElement('button'); bk.className = 'type-btn Clear'; bk.textContent = '← Terug'; bk.addEventListener('click', () => showQ1()); g.appendChild(bk); const r = document.createElement('div'); r.className = 'type-row'; const b1 = document.createElement('button'); b1.className = 'type-btn DVRMI050'; b1.textContent = 'DVRMI050 MIX'; b1.addEventListener('click', () => selZak('Quarantine', 'Q DVRMI050 MIX')); r.appendChild(b1); const b2 = document.createElement('button'); b2.className = 'type-btn DVRNA050'; b2.textContent = 'DVRNA050 Natural'; b2.addEventListener('click', () => selZak('Quarantine', 'Q DVRNA050 Natural')); r.appendChild(b2); g.appendChild(r); }
+
+    // ── Bunker modal ──
+    function buildBunkerModal() { const g = document.getElementById('typeGrid'); g.innerHTML = ''; if (selectedCells.some(c => c.classList.contains('wall'))) { g.innerHTML = '<div style="color:#888;padding:8px;text-align:center">Muur</div>'; return; } const si = document.createElement('input'); si.type = 'text'; si.placeholder = 'Zoek materiaal...'; si.className = 'login-input'; g.appendChild(si); const li = document.createElement('div'); li.style.cssText = 'display:flex;flex-direction:column;gap:3px;'; g.appendChild(li); const mm = new Map(); allMaterialsIncTest.forEach(m => { const bn = m.name.replace(/\s+[ST]$/i, '').trim(); if (!mm.has(bn)) mm.set(bn, m.is_test); }); const so = [...mm.entries()].sort((a, b) => a[0].localeCompare(b[0])); function ren(f) { li.innerHTML = ''; const cb = document.createElement('button'); cb.className = 'type-btn Clear'; cb.textContent = 'Leeg'; cb.addEventListener('click', () => { if (confirm('Leegmaken?')) selBunker(''); }); li.appendChild(cb); (f ? so.filter(([n]) => n.toLowerCase().includes(f.toLowerCase())) : so).forEach(([name, isTest]) => { const label = isTest ? `${name} (Test)` : name; const b = document.createElement('button'); b.className = 'type-btn'; b.style.cssText = isTest ? 'background:rgba(241,196,15,0.3);color:#fff;flex:none;padding:8px;text-align:left;' : 'background:rgba(192,57,43,0.4);color:#fff;flex:none;padding:8px;text-align:left;'; b.textContent = label; b.addEventListener('click', () => selBunker(label)); li.appendChild(b); }); } ren(''); si.addEventListener('input', () => ren(si.value)); setTimeout(() => si.focus(), 100); }
+    function selBunker(mat) { const ts = Date.now(); selectedCells.forEach(el => { const key = `${el.dataset.col},${el.dataset.row}`; if (mat) { layout[key] = { ...layout[key], cellType: 'bunker-filled', label: mat, meta: { ...(layout[key]||{}).meta, editable: true } }; el.className = 'gc bunker-filled'; el.dataset.celltype = 'bunker-filled'; el.textContent = mat; el.title = mat; } else { layout[key] = { ...layout[key], cellType: 'bunker-type', label: '', meta: { ...(layout[key]||{}).meta, editable: true } }; el.className = 'gc bunker-type'; el.dataset.celltype = 'bunker-type'; el.textContent = ''; el.title = ''; } }); saveLayout(); closeModal(); showToast(`${selectedCells.length} opgeslagen`); }
+
+    // ── Data ──
+    function getLayout() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
+    function saveLayout() { localStorage.setItem(STORAGE_KEY, JSON.stringify(layout)); syncLayoutToServer(); }
+    function getZakData() { try { return JSON.parse(localStorage.getItem(ZAK_DATA_KEY)) || {}; } catch { return {}; } }
+    function saveZakData(d) { localStorage.setItem(ZAK_DATA_KEY, JSON.stringify(d)); }
+    function getQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch { return []; } }
+    function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); updatePending(); }
+
+    function loadZakDataToGrid() {
+      const zd = getZakData();
+      Object.entries(zd).forEach(([key, val]) => {
+        const [rij, layer] = key.split('-');
+        const el = document.querySelector(`.gc[data-rij="${rij}"][data-layer="${layer}"]`);
+        if (el && val.type && val.type !== 'Empty') { applyZakVisual(el, val.cssClass, val.type); if (val.blocked) el.classList.add('blocked'); }
+      });
+    }
+
+    async function syncLayoutToServer() { if (!navigator.onLine) return; try { const cells = Object.entries(layout).map(([k, v]) => { const [col, row] = k.split(',').map(Number); return { col, row, cell_type: v.cellType, label: v.label, meta: v.meta, updated_at: Date.now() }; }); await fetch('/api/layout/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cells }) }); } catch (e) {} }
+
+    async function saveLayoutNow() {
+      saveLayout();
+      if (navigator.onLine) {
+        document.getElementById('saveBtn').textContent = '⏳ Opslaan...';
+        document.getElementById('saveBtn').disabled = true;
+        try {
+          await syncLayoutToServer();
+          showToast('Layout opgeslagen naar server');
+        } catch (e) {
+          showToast('Lokaal opgeslagen — server sync mislukt');
+        }
+        document.getElementById('saveBtn').textContent = '💾 Opslaan';
+        document.getElementById('saveBtn').disabled = false;
+      } else {
+        showToast('Lokaal opgeslagen (offline)');
+      }
+    }
+    async function pullLayoutFromServer() { if (!navigator.onLine) return; try { const res = await fetch('/api/layout'); if (!res.ok) return; const rows = await res.json(); if (rows.length > 0) { layout = {}; rows.forEach(r => { layout[`${r.col},${r.row}`] = { cellType: r.cell_type, label: r.label || '', meta: r.meta || {} }; }); saveLayout(); } } catch (e) {} }
+    async function trySync() { if (syncInProgress || !navigator.onLine) return; const q = getQueue(); if (!q.length) return; syncInProgress = true; try { const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: q }) }); if (r.ok) { saveQueue([]); showToast(`${q.length} gesynchroniseerd`); } } catch (e) {} finally { syncInProgress = false; } }
+    async function pullFromServer() { if (!navigator.onLine) return; try { const r = await fetch('/api/cells'); if (!r.ok) return; const rows = await r.json(); const zd = getZakData(); let u = false; rows.forEach(r => { const k = `${r.row_num}-${r.layer}`; const l = zd[k]; if (!l || r.updated_at > l.updated_at) { const css = cssFromType(r.type); zd[k] = { type: r.type, cssClass: css, updated_at: r.updated_at }; u = true; } }); if (u) { saveZakData(zd); loadZakDataToGrid(); } } catch (e) {} }
+
+    // ── Materials ──
+    function saveTLSelections() { localStorage.setItem(TL_SEL_KEY, JSON.stringify({ tl1: document.getElementById('selTL1').value, tl2: document.getElementById('selTL2').value })); }
+    function loadTLSelections() { try { const s = JSON.parse(localStorage.getItem(TL_SEL_KEY)); if (s) { if (s.tl1) { document.getElementById('selTL1').value = s.tl1; document.getElementById('trigTL1').textContent = s.tl1; } if (s.tl2) { document.getElementById('selTL2').value = s.tl2; document.getElementById('trigTL2').textContent = s.tl2; } } } catch (e) {} }
+    async function loadMaterials() { try { const r = await fetch('/api/materials'); if (r.ok) { materials = await r.json(); localStorage.setItem('yard_materials_cache', JSON.stringify(materials)); applyMaterials(materials); } } catch (e) { try { const c = JSON.parse(localStorage.getItem('yard_materials_cache')); if (c) { materials = c; applyMaterials(c); } } catch (e2) {} } }
+    function applyMaterials(m) { const bn = new Set(); m.forEach(x => bn.add(x.name.replace(/\s+[ST]$/i, '').trim())); allMaterialNames = [...bn].sort(); populateSelect('selTL1', allMaterialNames); populateSelect('selTL2', allMaterialNames); loadTLSelections(); }
+    function populateSelect(id, names) { renderDDOptions(id === 'selTL1' ? 'TL1' : 'TL2', names); }
+    function renderDDOptions(tlId, names, filter) { const c = document.getElementById('opts' + tlId); c.innerHTML = ''; const n = document.createElement('div'); n.className = 'opt'; n.textContent = '-- Geen --'; n.addEventListener('click', () => selectDD(tlId, '')); c.appendChild(n); (filter ? names.filter(x => x.toLowerCase().includes(filter.toLowerCase())) : names).forEach(x => { const o = document.createElement('div'); o.className = 'opt'; o.textContent = x; o.addEventListener('click', () => selectDD(tlId, x)); c.appendChild(o); }); }
+    function toggleSearchDD(tlId) { const dd = document.getElementById('dd' + tlId); const o = dd.classList.contains('open'); document.querySelectorAll('.search-dropdown').forEach(d => d.classList.remove('open')); if (!o) { dd.classList.add('open'); const i = document.getElementById('search' + tlId); i.value = ''; renderDDOptions(tlId, allMaterialNames); setTimeout(() => i.focus(), 50); } }
+    function filterDD(tlId) { renderDDOptions(tlId, allMaterialNames, document.getElementById('search' + tlId).value); }
+    function selectDD(tlId, v) { document.getElementById(tlId === 'TL1' ? 'selTL1' : 'selTL2').value = v; document.getElementById('trig' + tlId).textContent = v || '-- Materiaal --'; document.getElementById('dd' + tlId).classList.remove('open'); saveTLSelections(); }
+    document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) document.querySelectorAll('.search-dropdown').forEach(d => d.classList.remove('open')); });
+    async function loadAllMaterials() { try { const r = await fetch('/api/materials-all'); if (r.ok) { allMaterialsIncTest = await r.json(); localStorage.setItem('yard_materials_all_cache', JSON.stringify(allMaterialsIncTest)); } } catch (e) { try { const c = JSON.parse(localStorage.getItem('yard_materials_all_cache')); if (c) allMaterialsIncTest = c; } catch (e2) {} } }
+
+    // ── Status ──
+    function updateOnline() { const d = document.getElementById('statusDot'), t = document.getElementById('statusText'); d.classList.toggle('on', navigator.onLine); t.textContent = navigator.onLine ? 'Online' : 'Offline'; }
+    function updatePending() { const c = getQueue().length; const el = document.getElementById('pendingCount'); el.textContent = c; el.className = c === 0 ? 'pending-badge zero' : 'pending-badge'; }
+    function showToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2000); }
+    async function registerSW() { if ('serviceWorker' in navigator) { try { await navigator.serviceWorker.register('/sw.js'); } catch (e) {} } }
+
+    // ── Init ──
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Load layout: try localStorage first, then default
+      const savedLayout = getLayout();
+      if (Object.keys(savedLayout).length > 0) {
+        layout = savedLayout;
+      } else {
+        layout = getDefaultLayout();
+        saveLayout();
+      }
+      renderGrid();
+      loadCustomCSS();
+      updateOnline(); updatePending(); registerSW();
+      loadMaterials(); loadAllMaterials();
+      pullLayoutFromServer().then(() => { if (Object.keys(layout).length > 0) renderGrid(); });
+      pullFromServer().then(() => trySync());
+      setInterval(trySync, SYNC_INTERVAL);
+      window.addEventListener('online', () => { updateOnline(); pullFromServer().then(() => trySync()); });
+      window.addEventListener('offline', updateOnline);
+      const vp = document.getElementById('viewport');
+      vp.addEventListener('mousedown', onMouseDown); window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp);
+      vp.addEventListener('wheel', onWheel, { passive: false });
+      vp.addEventListener('touchstart', onTouchStart, { passive: false }); vp.addEventListener('touchmove', onTouchMove, { passive: false }); vp.addEventListener('touchend', onTouchEnd);
+    });
+    document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+    document.getElementById('loginModal').addEventListener('click', e => { if (e.target.id === 'loginModal') closeLogin(); });
+  </script>
+</body>
+</html>

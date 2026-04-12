@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic MCP Configuration: A Better Solution to Tool Overload | PulseMCP</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      line-height: 1.75;
+      font-size: 17px;
+    }
+    a { color: #7c9aff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .hero {
+      background: linear-gradient(135deg, #1a1a3e 0%, #2d1b4e 50%, #1a2a4e 100%);
+      padding: 60px 20px 50px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .hero .tag {
+      display: inline-block;
+      background: rgba(124,154,255,0.15);
+      color: #7c9aff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .hero h1 {
+      font-size: clamp(1.8rem, 5vw, 2.8rem);
+      color: #fff;
+      max-width: 800px;
+      margin: 0 auto 16px;
+      line-height: 1.2;
+    }
+    .hero .subtitle {
+      color: #999;
+      font-size: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .hero .source-link {
+      display: inline-block;
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: #7c9aff;
+      opacity: 0.8;
+    }
+    article {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 80px;
+    }
+    h2 {
+      color: #fff;
+      font-size: 1.5rem;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    h3 {
+      color: #ddd;
+      font-size: 1.2rem;
+      margin: 36px 0 12px;
+    }
+    p { margin-bottom: 18px; }
+    ul, ol {
+      margin: 0 0 18px 24px;
+    }
+    li { margin-bottom: 8px; }
+    strong { color: #fff; }
+    code {
+      background: rgba(124,154,255,0.1);
+      color: #a8c0ff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+    pre {
+      background: #161625;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 20px;
+      overflow-x: auto;
+      margin: 18px 0;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+      color: #c8d6e5;
+    }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <span class="tag">PulseMCP</span>
+  <h1>Agentic MCP Configuration: A Better Solution to Tool Overload</h1>
+  <p class="subtitle">Why focusing on servers instead of tools is the most compelling path forward for managing MCP at scale.</p>
+  <a class="source-link" href="https://www.pulsemcp.com/posts/agentic-mcp-configuration" target="_blank" rel="noopener">Source: pulsemcp.com &rarr;</a>
+</div>
+
+<article>
+
+  <h2>The Problem: Tool Overload</h2>
+  <p>One of the more common criticisms of MCP in recent months has been that of "tool overload." As you accrue more and more useful MCP servers in your favorite MCP client, you find yourself blowing up your context window. More tools activated means more tokens used on every conversation turn, and performance starts to deteriorate.</p>
+  <p>The simple solution is to disable the tools and servers you don't use. But nobody wants that tedious, manual, unscaleable overhead. So attempts at creative automated solutions abound. The MCP community poured thousands of hours into a proposal on "searching tools". The recent MCP Dev Summit was flooded with talk proposals on the theme of tool overload &mdash; with Matt Lenhard's graph-based approach and Richard Moot's layered approach rising to the top of the solution space.</p>
+
+  <h2>The Reframe: Focus on Servers, Not Tools</h2>
+  <p>Almost everyone exploring this problem seems focused on the tools. But it's much more interesting to focus on the <strong>servers</strong>.</p>
+  <p>The premise: almost every practical MCP use case does not need more than a handful of MCP servers active in a particular agentic session. You never need your "flight search" MCP server active at the same time as your GitHub MCP server.</p>
+  <p>And we don't need to manage this per-server "on/off" manually: our agent can do it for itself every time you start a conversation.</p>
+  <p>The end result: one input box where you can delegate agentic tasks as diverse as "find me a flight" to "run a data analysis for me" to "build me a feature in my web app". And Agentic MCP Configuration takes it all from there.</p>
+
+  <h2>How It Works</h2>
+
+  <h3>Step 1: Start with Your Trusted Servers</h3>
+  <p>The reality of MCP is that nobody wants access to all of the world's MCP servers every time they sit down to get something done. You don't open the App Store every time you open your phone.</p>
+  <p>Anyone using MCP productively will have a list of "trusted" servers they like using. For example:</p>
+  <ul>
+    <li><strong>Playwright</strong> &mdash; for testing UI/UX while agentic coding a web app</li>
+    <li><strong>AppSignal</strong> &mdash; observability platform that reads incident and log information</li>
+    <li><strong>BigQuery</strong> &mdash; access to the data warehouse to test data model changes and do data analysis</li>
+    <li><strong>Postgres</strong> &mdash; assess production or staging database data issues</li>
+    <li><strong>Twist</strong> &mdash; Slack alternative for team messaging</li>
+    <li><strong>Pulse Fetch</strong> &mdash; a more ergonomic server for performing web fetches</li>
+  </ul>
+  <p>As the MCP ecosystem matures, this list will grow substantially. But a personal list of "trusted" servers will likely never exceed something like 100&ndash;200; roughly the number of apps on your phone.</p>
+  <p>Step 1 is to write a markdown file naming each of these servers, and a free-form description of when they are useful to you:</p>
+
+  <pre><code>## com.microsoft/playwright
+Used when making nontrivial changes to the PulseMCP web-app, or a greenfield app
+with a nontrivial UI/UX. This is an expensive server to install, so only install it
+when you're going to need to click around the staging UI.
+
+## com.pulsemcp/appsignal
+Used when triaging production or staging environment problems for the PulseMCP web
+app. Gives us access to logs and other observability metrics.
+
+## io.github.lucashild/bigquery
+Used for data engineering/modeling workflows. Do not install unless we're beginning
+a dbt model-related analysis or modification.
+
+## io.github.crystaldba/postgres
+Used for connecting to our staging or production (readonly) PulseMCP databases.
+Only install this if we are triaging an issue in one of those environments.
+
+## com.pulsemcp/twist
+Used for reading or managing messages in our Twist team messaging platform.
+
+## com.pulsemcp/fetch
+Use this by default (unless explicitly asked not to). It performs better than the
+native web Fetch capabilities of any MCP client.</code></pre>
+
+  <h3>Step 2: Installation Instructions (servers.json)</h3>
+  <p>You'll need a second file: installation instructions for each server. The good news? The MCP Steering Committee is building a standard that will make this automatic.</p>
+  <p>Specifically, the MCP Registry working group is creating a <code>server.json</code> format that lets any MCP server describe itself in a standardized way. Soon, you won't even need to maintain this file &mdash; just reference the official MCP Registry names for your favorite servers, and let your agent handle installation.</p>
+
+  <h3>Step 3: The Agentic Behavior</h3>
+  <p>You have your server list, you have your installation list. The missing piece: an agentic loop that properly utilizes those two files.</p>
+
+  <h2>What's Missing from Most Agents Today</h2>
+  <p>Most leading MCP clients (Claude Code, Goose, Cursor) are close to being able to do this out-of-the-box, but aren't quite there yet. We need to nudge them into supporting dynamic server configuration at the subagent level.</p>
+  <p>We can do this by empowering them with a few extra tools:</p>
+  <ol>
+    <li><code>init_agent</code> &mdash; instantiate a subagent (i.e. recurse on itself)</li>
+    <li><code>find_servers(task_description)</code> &mdash; analyze your personal trusted list, and return only the servers relevant to the task at hand</li>
+    <li><code>install_servers(server_names)</code> &mdash; taking the output of find_servers and using it to get the agent to install those servers on its subagent</li>
+    <li><code>chat(prompt)</code> &mdash; the ensuing task that can be handed off to the now-properly-MCP-server-equipped subagent</li>
+  </ol>
+  <p>Many of these clients have some sort of native implementation of "subagents" which we are explicitly bypassing by introducing these alternative tools. This is because most current implementations are not quite rich enough to demonstrate the use case &mdash; dynamic MCP configurations &mdash; here.</p>
+
+  <h2>Proof of Concept: The Claude Code Agent MCP Server</h2>
+  <p>To demonstrate this approach, a proof-of-concept "Claude Code Agent" MCP server was built that adds the above capabilities to Claude Code. Here's what the final workflow looks like:</p>
+  <ol>
+    <li>Start Claude Code in your home directory, with just this one extra set of tools enabled by default, and most native Claude Code tools disabled</li>
+    <li>Prompt it something like, "Please triage this AppSignal bug from Twist: &lt;link&gt;"</li>
+    <li>The main agent will start a subagent with active servers: AppSignal, Twist, Postgres, Pulse Fetch</li>
+    <li>The prompt into that subagent will lead to it opening a PR</li>
+    <li>You can have the main agent continue to drive the subagent if you have follow up requests, but otherwise close it down</li>
+  </ol>
+  <p>The result? Your agent dynamically loads only the 3&ndash;4 servers needed for this specific task, keeping your context lean for the duration of the task.</p>
+  <p><em>Note: This proof of concept is very experimental and is not suited for sensitive work. For example, the mechanism for how it loads secrets means secrets pass through the LLM.</em></p>
+
+  <h3>Example 1: Run Analyses on Your Data Warehouse</h3>
+  <p>With a prompt as simple as: <em>"get me the month over month growth of MCP server downloads from our warehouse from March through September 2025"</em> &mdash; the setup steps through this sequence:</p>
+  <ol>
+    <li><code>init_agent</code> &mdash; Creates the abstraction layer where we can configure MCP servers autonomously</li>
+    <li><code>find_servers</code> &mdash; Identifies which servers from the trusted list are needed (in this case, only BigQuery)</li>
+    <li><code>install_servers</code> &mdash; Installs the servers by creating a <code>.mcp.json</code> configuration file</li>
+    <li><code>chat</code> &mdash; Issues a well-crafted prompt to get the subagent to perform the task end to end</li>
+  </ol>
+
+  <h3>Example 2: Clean Up Automated Messages in Twist</h3>
+  <p>This scales to any kind of task your list of trusted MCP servers can consider in scope. For example: <em>"How many unresolved alerts do we have in our Twist pm-eng-alerts channel? Many of them are probably related, group them into related buckets of issues."</em></p>
+
+  <h2>Why This Approach Makes No Compromises</h2>
+  <p>Most other solutions to "tool overload" make some sort of performance compromise. For example, the idea of <strong>RAG-MCP</strong> was making the social media rounds a few months back. The idea is that:</p>
+  <ol>
+    <li>All available MCP tool descriptions are pre-indexed in a vector database with their metadata</li>
+    <li>A user makes a prompt</li>
+    <li>The RAG system performs semantic similarity search &mdash; comparing the encoded user query vector against all tool vectors</li>
+    <li>This finds tools whose meaning matches the task, and selection is filtered from there</li>
+  </ol>
+  <p>This should work fine for predictable scenarios like "what's the weather?" pulling in a <code>check_weather_forecast</code> MCP tool.</p>
+  <p>But it falls apart when you start to explore more practical scenarios. For example:</p>
+  <ol>
+    <li>User starts an agentic coding session</li>
+    <li>Agent implements a feature</li>
+    <li>User gives feedback: "the button doesn't do anything"</li>
+  </ol>
+  <p>How could RAG-MCP possibly convert the prompt "the button doesn't do anything" into the optimal next step: "I should use the Playwright MCP server to recreate the issue and debug"?</p>
+  <p>Any sort of tool matching or filtering algorithm will never be able to match the performance of LLM-powered inference, as long as we have a way to constrain the inference to a reasonable context window. That's why recursive agentic MCP configuration works: we scale out the possibility of engaging hundreds, thousands of MCP servers by carving out the "server selection" step into its own, discrete step.</p>
+  <p>As long as your full list of "trusted servers" (a name and short description for each) fits into a 200k context window &mdash; an easy feat for up to say 1,000 servers &mdash; your agentic loop can solve tool overload for you.</p>
+
+  <h2>Agentic MCP Configuration Is a Lot Like Agentic Code Search</h2>
+  <p>When Cursor first caught fire with developers, it was lauded for its innovative feature to RAG a codebase to pull in relevant context fragments as it made code change suggestions.</p>
+  <p>But it didn't take long for Claude Code to one-up that approach with <strong>agentic search</strong>, on the basis that agentic search outperforms RAG.</p>
+  <p>That happened because RAG was a largely effective, but ultimately crude solution with a lower performance ceiling than a well-executed agentic search implementation. Agentic search takes longer to execute, but it matches how humans work: grep around, find pieces you're interested in, then read files to get the full context.</p>
+  <p>Agentic MCP Configuration is the same foil to RAG-MCP. Instead of spraying embeddings and hoping you get the right tools, we systematically &mdash; maybe recursively &mdash; identify the right MCP servers. Load them up, and use them with the full backing of LLM-powered inference.</p>
+
+  <h2>Two Recent Developments Making This Possible</h2>
+  <p>The first is obvious: the number of quality MCP servers is slowly but surely increasing. MCP has evolved from being a hobbyist-driven community of side projects, to now 700+ servers maintained by official providers. As this investment continues, we'll be able to stop talking about "does an MCP server exist for XYZ?" and instead focus on "which is the best MCP server to do XYZ?"</p>
+  <p>Because of that, autonomous selection from among your trusted servers is less likely to reach a dead-end or infinite loop en route to accomplishing your task.</p>
+  <p>Secondly, we're empowered by the <code>server.json</code> standard. Without the standard, you would need an agentic loop crawling through a GitHub repository or bespoke set of MCP server documentation to figure out the right formatting and variables to start or connect to some MCP server. But with the standard, it's trivial and clear how to install an MCP server into any MCP client, knowing little more than its name.</p>
+
+  <h3>A Note on Tool Groups (SEP-1300)</h3>
+  <p>SEP-1300, a proposal to introduce "Tool Groups" to the MCP specification, introduces an interesting new wrinkle. In brief, the "Primitive Groups" working group is defining an in-protocol notion of "groups":</p>
+  <ul>
+    <li>Many MCP servers load up dozens, maybe hundreds, of tools</li>
+    <li>In many cases, the tools serve a range of different "sets" of use cases</li>
+    <li>"Groups" should allow an MCP server to "start up" with all its tools, but then allow MCP clients to include/exclude groups of them at runtime</li>
+  </ul>
+  <p>Perhaps the best example is the <strong>GitHub MCP server</strong>. They've called this concept "toolsets" rather than "Groups" &mdash; but the idea is the same. Examples include Discussions versus Repositories vs. Issues vs. Stargazers.</p>
+  <p>When Groups exist, the advice to "write a description of where each trusted MCP server is useful" will further distill down to "write a description of where each Group within a trusted MCP server is useful to you."</p>
+
+  <h2>Better Agent Harnesses to Come</h2>
+  <p>While the Claude Code Agent MCP server example technically works to demonstrate this concept, it's far from a production-ready implementation. A few rough edges:</p>
+  <ul>
+    <li><strong>Secrets management</strong> &mdash; Secrets pass through inference calls as they get passed around config files. This is obviously insecure and dangerous while running in autonomous mode.</li>
+    <li><strong>Brittleness</strong> &mdash; There's not a whole lot of validation happening as config files are generated, servers are selected, and so on.</li>
+    <li><strong>No actual recursion</strong> &mdash; One instance of <code>init_agent</code> doesn't actually have the opportunity to spin up additional agents downstream if it realizes it needs more servers.</li>
+    <li><strong>Room for abstraction</strong> &mdash; For example, "groups of MCP servers" that are used together for specific workflows could make more sense in some cases than managing individual servers.</li>
+  </ul>
+  <p>Agentic MCP client implementers have an opportunity to adopt not only the Agentic MCP Configuration concept itself, but also all the bells and whistles that would make it a joy to use &mdash; plenty still to discover here.</p>
+
+  <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 48px 0;">
+  <p style="color: #666; font-size: 0.85rem;">
+    Content rephrased for compliance with licensing restrictions. Original source:
+    <a href="https://www.pulsemcp.com/posts/agentic-mcp-configuration" target="_blank" rel="noopener">pulsemcp.com/posts/agentic-mcp-configuration</a>
+  </p>
+
+</article>
+</body>
+</html>
