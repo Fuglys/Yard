@@ -248,54 +248,80 @@
           }
         }
 
-        // Render merged regions
+        // Render merged regions as colored cells with borders only on edges
+        const regionMap = {}; // key -> region index
+        regions.forEach((region, idx) => {
+          region.keySet = new Set(region.keys);
+          region.keys.forEach(k => regionMap[k] = idx);
+        });
+
+        function getRegionStyle(region) {
+          const ct = region.cellType;
+          const colors = { S01:'#5dade2', S02:'#2e86c1', S17:'#f0b27a', T01:'#ec7063', T02:'#58d68d', T17:'#dc7633', DVRMI050:'#f0b27a', DVRNA050:'#82e0aa', LUMPS:'#85c1e9', Quarantine:'#c39bd3' };
+          if (ct === 'container-type') return { bg:'#7f8c8d', border:'#566573', fg:'#fff' };
+          if (ct === 'afval-type') return { bg:'#95a5a6', border:'#7f8c8d', fg:'#fff' };
+          if (ct === 'bunker-filled') return { bg:'#e67e22', border:'#d35400', fg:'#fff' };
+          if (ct === 'zak') { const css = cssFromType(region.label); return { bg: colors[css] || '#5dade2', border:'rgba(0,0,0,0.2)', fg:'#fff' }; }
+          if (region.color) return { bg: region.color, border: region.color, fg:'#fff' };
+          return { bg:'#bdc3c7', border:'#95a5a6', fg:'#333' };
+        }
+
+        // Render all cells — merged ones get colored + selective borders
+        for (const [key, def] of Object.entries(layout)) {
+          const [c, r] = key.split(',').map(Number);
+          const el = createCellElement(container, c, r, def, false);
+
+          if (merged.has(key)) {
+            const rIdx = regionMap[key];
+            const region = regions[rIdx];
+            const style = getRegionStyle(region);
+            const ks = region.keySet;
+
+            el.style.background = style.bg;
+            el.style.color = 'transparent'; // hide individual text
+            el.style.zIndex = '2';
+            el.innerHTML = '';
+
+            // Borders only on edges where no neighbor in same region
+            const bw = '2px';
+            el.style.borderTop = ks.has(`${c},${r-1}`) ? 'none' : `${bw} solid ${style.border}`;
+            el.style.borderBottom = ks.has(`${c},${r+1}`) ? 'none' : `${bw} solid ${style.border}`;
+            el.style.borderLeft = ks.has(`${c-1},${r}`) ? 'none' : `${bw} solid ${style.border}`;
+            el.style.borderRight = ks.has(`${c+1},${r}`) ? 'none' : `${bw} solid ${style.border}`;
+            el.style.borderRadius = '0';
+          }
+        }
+
+        // Add label overlay in center of each region
         regions.forEach(region => {
+          if (!region.label) return;
           const el = document.createElement('div');
-          el.className = 'merged-region';
+          el.className = 'merged-label';
+          el.style.position = 'absolute';
           el.style.left = (region.minC * CW) + 'px';
           el.style.top = (region.minR * CH) + 'px';
           el.style.width = ((region.maxC - region.minC + 1) * CW - 1) + 'px';
           el.style.height = ((region.maxR - region.minR + 1) * CH - 1) + 'px';
+          el.style.display = 'flex';
+          el.style.alignItems = 'center';
+          el.style.justifyContent = 'center';
+          el.style.pointerEvents = 'none';
+          el.style.zIndex = '3';
+          el.style.fontSize = '11px';
+          el.style.fontWeight = '800';
+          el.style.color = '#fff';
+          el.style.textShadow = '0 1px 3px rgba(0,0,0,0.3)';
+          el.style.textAlign = 'center';
+          el.style.letterSpacing = '0.3px';
 
-          // Style based on type
-          if (region.cellType === 'wall') { el.style.background = '#2c3e50'; el.style.border = '3px solid #1a252f'; el.style.color = '#7f8c8d'; }
-          else if (region.cellType === 'container-type') { el.style.background = '#7f8c8d'; el.style.border = '2px solid #566573'; el.style.color = '#fff'; }
-          else if (region.cellType === 'afval-type') { el.style.background = '#95a5a6'; el.style.border = '2px solid #7f8c8d'; el.style.color = '#fff'; }
-          else if (region.cellType === 'bunker-filled') { el.style.background = '#e67e22'; el.style.border = '2px solid #d35400'; el.style.color = '#fff'; }
-          else if (region.cellType === 'zak') {
-            // Zak with material — use the material color
-            const css = cssFromType(region.label);
-            const colors = { S01:'#5dade2', S02:'#2e86c1', S17:'#f0b27a', T01:'#ec7063', T02:'#58d68d', T17:'#dc7633', DVRMI050:'#f0b27a', DVRNA050:'#82e0aa', LUMPS:'#85c1e9', Quarantine:'#c39bd3' };
-            el.style.background = colors[css] || '#5dade2';
-            el.style.border = '2px solid rgba(0,0,0,0.15)';
-            el.style.color = '#fff';
-          }
-          else if (region.color) { el.style.background = region.color; el.style.border = `2px solid ${region.color}`; el.style.color = '#fff'; }
-          else { el.style.background = '#bdc3c7'; el.style.border = '2px solid #95a5a6'; el.style.color = '#333'; }
-
-          // Label
           const parts = (region.label || '').split(' ');
           if (parts.length >= 2 && region.cellType === 'zak') {
-            el.innerHTML = `<span style="font-size:inherit">${parts[0]}</span><br><span style="font-size:9px;opacity:0.85">${parts.slice(1).join(' ')}</span>`;
+            el.innerHTML = `<div>${parts[0]}<br><span style="font-size:9px;opacity:0.85">${parts.slice(1).join(' ')}</span></div>`;
           } else {
-            el.textContent = region.label || '';
+            el.textContent = region.label;
           }
           container.appendChild(el);
         });
-
-        // Render remaining cells individually (including merged ones, but hidden behind merged regions)
-        for (const [key, def] of Object.entries(layout)) {
-          const [c, r] = key.split(',').map(Number);
-          const el = createCellElement(container, c, r, def, false);
-          if (merged.has(key)) {
-            // Make invisible but still clickable
-            el.style.background = 'transparent';
-            el.style.border = 'none';
-            el.style.color = 'transparent';
-            el.style.zIndex = '3';
-            el.innerHTML = '';
-          }
-        }
       }
       loadZakDataToGrid();
     }
