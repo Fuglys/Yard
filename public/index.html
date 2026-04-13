@@ -446,22 +446,33 @@
       }
       // Ensure zak cells always have rij/layer from nearby zak-num
       if (def.cellType === 'zak' && !el.dataset.rij) {
-        // Try to find rij from zak-num in same column — search wider range
-        for (let searchR = 0; searchR < 100; searchR++) {
-          // Search both up and down
-          for (const dir of [row - searchR, row + searchR]) {
-            const nk = `${col},${dir}`;
+        // Search UP first to find the zak-num header
+        for (let searchR = row - 1; searchR >= Math.max(0, row - 20); searchR--) {
+          const nk = `${col},${searchR}`;
+          const nd = layout[nk];
+          if (nd && nd.cellType === 'zak-num') {
+            const rij = nd.meta?.rij || nd.label;
+            if (rij) {
+              el.dataset.rij = String(rij);
+              el.dataset.layer = String(row - searchR);
+              break;
+            }
+          }
+        }
+        // If not found above, search DOWN
+        if (!el.dataset.rij) {
+          for (let searchR = row + 1; searchR <= Math.min(99, row + 20); searchR++) {
+            const nk = `${col},${searchR}`;
             const nd = layout[nk];
             if (nd && nd.cellType === 'zak-num') {
               const rij = nd.meta?.rij || nd.label;
               if (rij) {
                 el.dataset.rij = String(rij);
-                el.dataset.layer = String(Math.abs(row - dir));
+                el.dataset.layer = String(searchR - row);
                 break;
               }
             }
           }
-          if (el.dataset.rij) break;
         }
       }
 
