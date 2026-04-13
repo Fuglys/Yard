@@ -60,10 +60,10 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 /* Materiaal types — muted, professional */
 .gc.S01{background:#5dade2;color:#fff;border-color:#3498db}
 .gc.S02{background:#2e86c1;color:#fff;border-color:#2471a3}
-.gc.S17{background:#f0b27a;color:#5b370a;border-color:#e59866}
-.gc.T01{background:#ec7063;color:#fff;border-color:#e74c3c}
-.gc.T02{background:#58d68d;color:#fff;border-color:#2ecc71}
-.gc.T17{background:#dc7633;color:#fff;border-color:#ca6f1e}
+.gc.S17{background:#d4ac0d;color:#fff;border-color:#b7950b}
+.gc.T01{background:#e74c3c;color:#fff;border-color:#c0392b}
+.gc.T02{background:#a93226;color:#fff;border-color:#7b241c}
+.gc.T17{background:#b7950b;color:#fff;border-color:#7d6608}
 .gc.Pellets{background:#f7dc6f;color:#7d6608;border-color:#f4d03f}
 .gc.DVRMI050{background:#f0b27a;color:#6e2c00;border-color:#eb984e}
 .gc.DVRNA050{background:#82e0aa;color:#1e5631;border-color:#58d68d}
@@ -94,8 +94,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .type-row{display:flex;gap:6px;flex-wrap:wrap}
 .type-btn{padding:10px 12px;border-radius:8px;font-weight:600;font-size:.75rem;border:none;cursor:pointer;flex:1;min-width:80px;text-align:center;transition:opacity .15s,transform .1s}
 .type-btn:hover{opacity:.9}.type-btn:active{transform:scale(.97)}
-.type-btn.S01{background:#5dade2;color:#fff}.type-btn.S02{background:#2e86c1;color:#fff}.type-btn.S17{background:#f0b27a;color:#5b370a}
-.type-btn.T01{background:#ec7063;color:#fff}.type-btn.T02{background:#58d68d;color:#fff}.type-btn.T17{background:#dc7633;color:#fff}
+.type-btn.S01{background:#5dade2;color:#fff}.type-btn.S02{background:#2e86c1;color:#fff}.type-btn.S17{background:#d4ac0d;color:#fff}
+.type-btn.T01{background:#e74c3c;color:#fff}.type-btn.T02{background:#a93226;color:#fff}.type-btn.T17{background:#b7950b;color:#fff}
 .type-btn.DVRMI050{background:#f0b27a;color:#6e2c00}.type-btn.DVRNA050{background:#82e0aa;color:#1e5631}
 .type-btn.LUMPS{background:#85c1e9;color:#1a5276}.type-btn.Quarantine{background:#c39bd3;color:#4a235a}
 .type-btn.Clear{background:#f0f2f5;color:#666;border:1px solid #e0e3e8}.type-btn:disabled{opacity:.25;cursor:not-allowed}
