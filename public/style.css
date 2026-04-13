@@ -57,17 +57,17 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .gc.zak-num{background:#d6dbdf;color:#2c3e50;font-size:7px;cursor:default;border-color:#bdc3c7;font-weight:800}
 .gc.zak{background:#ecf0f1;color:#bdc3c7;border-color:#d5dbdb}
 
-/* Materiaal types — neutral, desaturated */
-.gc.S01{background:#7ba7c9;color:#fff;border-color:#5e8fad}
-.gc.S02{background:#4e7a99;color:#fff;border-color:#3d6580}
-.gc.S17{background:#c4a95a;color:#fff;border-color:#a89040}
-.gc.T01{background:#c97b7b;color:#fff;border-color:#ad5e5e}
-.gc.T02{background:#8f5555;color:#fff;border-color:#733f3f}
-.gc.T17{background:#a89040;color:#fff;border-color:#8a7530}
-.gc.Pellets{background:#d6c87a;color:#5c5020;border-color:#c4b560}
-.gc.DVRMI050{background:#cba070;color:#4a3018;border-color:#b58a58}
-.gc.DVRNA050{background:#7ab893;color:#1e4030;border-color:#5fa07a}
-.gc.LUMPS{background:#7aafc4;color:#1a3e52;border-color:#5e96ad}
+/* Materiaal types — light to dark per group */
+.gc.S01{background:#a8c8e0;color:#2c4a60;border-color:#8fb8d4}
+.gc.S02{background:#6a9bbd;color:#fff;border-color:#5588a8}
+.gc.S17{background:#3d6f8e;color:#fff;border-color:#2d5a75}
+.gc.T01{background:#dba8a8;color:#5a2c2c;border-color:#cc9090}
+.gc.T02{background:#b06868;color:#fff;border-color:#994e4e}
+.gc.T17{background:#7a3c3c;color:#fff;border-color:#602e2e}
+.gc.Pellets{background:#e0d5a0;color:#5c5020;border-color:#ccc088}
+.gc.DVRMI050{background:#d4b896;color:#4a3018;border-color:#c0a47e}
+.gc.DVRNA050{background:#96c8aa;color:#1e4030;border-color:#7eb896}
+.gc.LUMPS{background:#9cc0d4;color:#1a3e52;border-color:#84b0c4}
 .gc.Quarantine{background:#a888b5;color:#3a2048;border-color:#8e6ea0}
 
 /* Edit mode */
@@ -94,10 +94,10 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .type-row{display:flex;gap:6px;flex-wrap:wrap}
 .type-btn{padding:10px 12px;border-radius:8px;font-weight:600;font-size:.75rem;border:none;cursor:pointer;flex:1;min-width:80px;text-align:center;transition:opacity .15s,transform .1s}
 .type-btn:hover{opacity:.9}.type-btn:active{transform:scale(.97)}
-.type-btn.S01{background:#7ba7c9;color:#fff}.type-btn.S02{background:#4e7a99;color:#fff}.type-btn.S17{background:#c4a95a;color:#fff}
-.type-btn.T01{background:#c97b7b;color:#fff}.type-btn.T02{background:#8f5555;color:#fff}.type-btn.T17{background:#a89040;color:#fff}
-.type-btn.DVRMI050{background:#cba070;color:#fff}.type-btn.DVRNA050{background:#7ab893;color:#fff}
-.type-btn.LUMPS{background:#7aafc4;color:#fff}.type-btn.Quarantine{background:#a888b5;color:#fff}
+.type-btn.S01{background:#a8c8e0;color:#2c4a60}.type-btn.S02{background:#6a9bbd;color:#fff}.type-btn.S17{background:#3d6f8e;color:#fff}
+.type-btn.T01{background:#dba8a8;color:#5a2c2c}.type-btn.T02{background:#b06868;color:#fff}.type-btn.T17{background:#7a3c3c;color:#fff}
+.type-btn.DVRMI050{background:#d4b896;color:#4a3018}.type-btn.DVRNA050{background:#96c8aa;color:#1e4030}
+.type-btn.LUMPS{background:#9cc0d4;color:#1a3e52}.type-btn.Quarantine{background:#a888b5;color:#fff}
 .type-btn.Clear{background:#f0f2f5;color:#666;border:1px solid #e0e3e8}.type-btn:disabled{opacity:.25;cursor:not-allowed}
 
 /* Toast */
