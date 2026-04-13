@@ -295,28 +295,40 @@
         // Add label overlay in center of each region
         regions.forEach(region => {
           if (!region.label) return;
+
+          // Calculate centroid of actual cells (not bounding box)
+          let sumC = 0, sumR = 0;
+          region.keys.forEach(k => { const [c,r] = k.split(',').map(Number); sumC += c; sumR += r; });
+          const centC = sumC / region.keys.length;
+          const centR = sumR / region.keys.length;
+
+          // Size based on number of cells
+          const cellCount = region.keys.length;
+          const fontSize = cellCount > 20 ? 14 : cellCount > 8 ? 12 : cellCount > 3 ? 10 : 7;
+
           const el = document.createElement('div');
           el.className = 'merged-label';
           el.style.position = 'absolute';
-          el.style.left = (region.minC * CW) + 'px';
-          el.style.top = (region.minR * CH) + 'px';
-          el.style.width = ((region.maxC - region.minC + 1) * CW - 1) + 'px';
-          el.style.height = ((region.maxR - region.minR + 1) * CH - 1) + 'px';
-          el.style.display = 'flex';
-          el.style.alignItems = 'center';
-          el.style.justifyContent = 'center';
+          // Position at centroid, centered
+          el.style.left = (centC * CW + CW/2) + 'px';
+          el.style.top = (centR * CH + CH/2) + 'px';
+          el.style.transform = 'translate(-50%, -50%)';
           el.style.pointerEvents = 'none';
-          el.style.zIndex = '3';
-          el.style.fontSize = '11px';
+          el.style.zIndex = '4';
+          el.style.fontSize = fontSize + 'px';
           el.style.fontWeight = '800';
           el.style.color = '#fff';
-          el.style.textShadow = '0 1px 3px rgba(0,0,0,0.3)';
+          el.style.textShadow = '0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(0,0,0,0.2)';
           el.style.textAlign = 'center';
           el.style.letterSpacing = '0.3px';
+          el.style.whiteSpace = 'nowrap';
+          el.style.maxWidth = ((region.maxC - region.minC + 1) * CW) + 'px';
+          el.style.overflow = 'hidden';
+          el.style.textOverflow = 'ellipsis';
 
           const parts = (region.label || '').split(' ');
           if (parts.length >= 2 && region.cellType === 'zak') {
-            el.innerHTML = `<div>${parts[0]}<br><span style="font-size:9px;opacity:0.85">${parts.slice(1).join(' ')}</span></div>`;
+            el.innerHTML = `<div>${parts[0]}<br><span style="font-size:${Math.max(7, fontSize-2)}px;opacity:0.9">${parts.slice(1).join(' ')}</span></div>`;
           } else {
             el.textContent = region.label;
           }
