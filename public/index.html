@@ -255,12 +255,27 @@
           region.keys.forEach(k => regionMap[k] = idx);
         });
 
+        function hashColor(str) {
+          // Generate a pleasant, muted color from a string
+          let hash = 0;
+          for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+          const h = Math.abs(hash) % 360;
+          return `hsl(${h}, 55%, 55%)`;
+        }
+        function darken(hslStr, amount) {
+          const m = hslStr.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+          if (!m) return '#333';
+          return `hsl(${m[1]}, ${m[2]}%, ${Math.max(0, parseInt(m[3]) - amount)}%)`;
+        }
+
         function getRegionStyle(region) {
           const ct = region.cellType;
           const colors = { S01:'#5dade2', S02:'#2e86c1', S17:'#f0b27a', T01:'#ec7063', T02:'#58d68d', T17:'#dc7633', DVRMI050:'#f0b27a', DVRNA050:'#82e0aa', LUMPS:'#85c1e9', Quarantine:'#c39bd3' };
           if (ct === 'container-type') return { bg:'#7f8c8d', border:'#566573', fg:'#fff' };
           if (ct === 'afval-type') return { bg:'#95a5a6', border:'#7f8c8d', fg:'#fff' };
-          if (ct === 'bunker-filled') return { bg:'#e67e22', border:'#d35400', fg:'#fff' };
+          if (ct === 'bunker-filled') {
+            return { bg: '#e67e22', border: '#8b4513', fg: '#fff' };
+          }
           if (ct === 'zak') { const css = cssFromType(region.label); return { bg: colors[css] || '#5dade2', border:'rgba(0,0,0,0.2)', fg:'#fff' }; }
           if (region.color) return { bg: region.color, border: region.color, fg:'#fff' };
           return { bg:'#bdc3c7', border:'#95a5a6', fg:'#333' };
@@ -278,16 +293,13 @@
             const ks = region.keySet;
 
             el.style.background = style.bg;
-            el.style.color = 'transparent'; // hide individual text
+            el.style.color = 'transparent';
             el.style.zIndex = '2';
             el.innerHTML = '';
-
-            // Borders only on edges where no neighbor in same region
-            const bw = '2px';
-            el.style.borderTop = ks.has(`${c},${r-1}`) ? 'none' : `${bw} solid ${style.border}`;
-            el.style.borderBottom = ks.has(`${c},${r+1}`) ? 'none' : `${bw} solid ${style.border}`;
-            el.style.borderLeft = ks.has(`${c-1},${r}`) ? 'none' : `${bw} solid ${style.border}`;
-            el.style.borderRight = ks.has(`${c+1},${r}`) ? 'none' : `${bw} solid ${style.border}`;
+            el.style.borderTop = ks.has(`${c},${r-1}`) ? 'none' : `3px solid ${style.border}`;
+            el.style.borderBottom = ks.has(`${c},${r+1}`) ? 'none' : `3px solid ${style.border}`;
+            el.style.borderLeft = ks.has(`${c-1},${r}`) ? 'none' : `3px solid ${style.border}`;
+            el.style.borderRight = ks.has(`${c+1},${r}`) ? 'none' : `3px solid ${style.border}`;
             el.style.borderRadius = '0';
           }
         }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yard-manager-v55';
+const CACHE_NAME = 'yard-manager-v56';
 const ASSETS = ['/', '/index.html', '/manifest.json', '/style.css'];
 
 self.addEventListener('install', (event) => {
