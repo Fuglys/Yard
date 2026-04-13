@@ -62,7 +62,7 @@
 
   <script>
     const CW = 59, CH = 31; // cell width/height including gap
-    const GRID_SIZE = 100;
+    const GCOLS = 125, GROWS = 100;
     const STORAGE_KEY = 'yard_layout_v2';
     const ZAK_DATA_KEY = 'yard_zak_data';
     const QUEUE_KEY = 'yard_sync_queue';
@@ -121,8 +121,8 @@
 
       if (adminMode) {
         // Only render around existing layout + padding, not full 100x100
-        const minC = 0, maxC = GRID_SIZE - 1;
-        const minR = 0, maxR = GRID_SIZE - 1;
+        const minC = 0, maxC = GCOLS - 1;
+        const minR = 0, maxR = GROWS - 1;
 
         // Column numbers
         for (let c = minC; c <= maxC; c++) {
