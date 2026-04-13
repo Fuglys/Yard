@@ -964,7 +964,21 @@
         }
       } catch (e) { console.log('Pull layout failed:', e); }
     }
-    async function trySync() { if (syncInProgress || !navigator.onLine) return; const q = getQueue(); if (!q.length) return; syncInProgress = true; try { const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: q }) }); if (r.ok) { saveQueue([]); showToast(`${q.length} gesynchroniseerd`); } } catch (e) {} finally { syncInProgress = false; } }
+    async function trySync() {
+      if (syncInProgress || !navigator.onLine) return;
+      let q = getQueue();
+      // Filter out invalid entries
+      q = q.filter(c => c.row_num !== undefined && c.row_num !== null && !isNaN(c.layer) && c.layer !== undefined);
+      saveQueue(q);
+      if (!q.length) return;
+      syncInProgress = true;
+      try {
+        const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: q }) });
+        if (r.ok) { saveQueue([]); showToast(`${q.length} gesynchroniseerd`); }
+        else { console.log('Sync failed:', r.status); }
+      } catch (e) { console.log('Sync error:', e); }
+      finally { syncInProgress = false; }
+    }
     async function pullFromServer() { if (!navigator.onLine) return; try { const r = await fetch('/api/cells'); if (!r.ok) return; const rows = await r.json(); const zd = getZakData(); let u = false; rows.forEach(r => { const k = `${r.row_num}-${r.layer}`; const l = zd[k]; if (!l || r.updated_at > l.updated_at) { const css = cssFromType(r.type); zd[k] = { type: r.type, cssClass: css, updated_at: r.updated_at }; u = true; } }); if (u) { saveZakData(zd); loadZakDataToGrid(); } } catch (e) {} }
 
     // ── Materials ──
