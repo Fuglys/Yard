@@ -403,8 +403,21 @@
       el.dataset.celltype = def.cellType;
 
       if (def.meta && def.meta.rij !== undefined) {
-        el.dataset.rij = def.meta.rij;
-        if (def.meta.layer) el.dataset.layer = def.meta.layer;
+        el.dataset.rij = String(def.meta.rij);
+        if (def.meta.layer !== undefined) el.dataset.layer = String(def.meta.layer);
+      }
+      // Ensure zak cells always have rij/layer from nearby zak-num
+      if (def.cellType === 'zak' && !el.dataset.rij) {
+        // Try to find rij from zak-num in same column
+        for (let searchR = row - 15; searchR <= row + 15; searchR++) {
+          const nk = `${col},${searchR}`;
+          const nd = layout[nk];
+          if (nd && nd.cellType === 'zak-num' && nd.meta && nd.meta.rij) {
+            el.dataset.rij = String(nd.meta.rij);
+            el.dataset.layer = String(Math.abs(row - searchR));
+            break;
+          }
+        }
       }
 
       if (def.cellType === 'zak-num') {
@@ -886,7 +899,7 @@
     }
     function addSec(g, label, btns) { const l = document.createElement('div'); l.className = 'type-section-label'; l.textContent = label; g.appendChild(l); const r = document.createElement('div'); r.className = 'type-row'; btns.forEach(b => r.appendChild(mkZBtn(...b))); g.appendChild(r); }
     function mkZBtn(cls, lbl, val, dis) { const b = document.createElement('button'); b.className = `type-btn ${cls}`; b.textContent = lbl; b.disabled = dis; b.addEventListener('click', () => { if (cls === 'Clear') { if (confirm('Leegmaken?')) selZak('Empty', ''); } else selZak(cls, val); }); return b; }
-    function selZak(cls, label) { const ts = Date.now(), tv = cls === 'Empty' ? 'Empty' : label, zd = getZakData(), queue = getQueue(), n = selectedCells.length; selectedCells.forEach(c => { const rij = c.dataset.rij, layer = parseInt(c.dataset.layer), key = `${rij}-${layer}`; c.classList.remove('blocked'); zd[key] = { type: tv, cssClass: cls, blocked: false, updated_at: ts }; const i = queue.findIndex(q => q.row_num == rij && q.layer === layer); if (i !== -1) queue.splice(i, 1); queue.push({ row_num: rij, layer, type: tv, updated_at: ts }); }); saveZakData(zd); saveQueue(queue); closeModal(); renderGrid(); showToast(`${n} opgeslagen`); }
+    function selZak(cls, label) { const ts = Date.now(), tv = cls === 'Empty' ? 'Empty' : label, zd = getZakData(), queue = getQueue(), n = selectedCells.length; selectedCells.forEach(c => { const rij = c.dataset.rij, layer = parseInt(c.dataset.layer); if (!rij || isNaN(layer)) return; const key = `${rij}-${layer}`; c.classList.remove('blocked'); zd[key] = { type: tv, cssClass: cls, blocked: false, updated_at: ts }; const i = queue.findIndex(q => q.row_num == rij && q.layer === layer); if (i !== -1) queue.splice(i, 1); queue.push({ row_num: rij, layer, type: tv, updated_at: ts }); }); saveZakData(zd); saveQueue(queue); closeModal(); renderGrid(); showToast(`${n} opgeslagen`); }
     function toggleBlock(b) { const zd = getZakData(); selectedCells.forEach(c => { const k = `${c.dataset.rij}-${c.dataset.layer}`; const d = zd[k]; if (!d || d.type === 'Empty') return; d.blocked = b; zd[k] = d; c.classList.toggle('blocked', b); }); saveZakData(zd); showToast(b ? 'Geblokkeerd' : 'Gedeblokkeerd'); }
 
     // Quarantine wizard
