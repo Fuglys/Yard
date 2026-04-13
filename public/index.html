@@ -162,33 +162,124 @@
           }
         }
       } else {
-        // Normal mode: merge non-editable adjacent cells, render editable individually
-        const mergeableTypes = new Set(['wall', 'container-type', 'afval-type']);
-        // Also include custom non-editable types
+        // Normal mode: merge adjacent cells of same type+content
+        // All non-editable types merge in all directions
+        // Zak cells with same material merge vertically only
+        // Bunker cells with same material merge in all directions
+        // Custom types merge in all directions
+        const merged = new Set();
+        const zakData = getZakData();
+
+        // Build merge groups: key = type identifier, value = set of grid keys
+        const mergeGroups = {};
         for (const [key, def] of Object.entries(layout)) {
-          if (def.cellType && def.cellType.startsWith('custom-') && def.meta && !def.meta.editable) {
-            mergeableTypes.add(def.cellType);
+          const [c, r] = key.split(',').map(Number);
+          let groupId = null;
+          let label = '';
+          let verticalOnly = false;
+
+          if (def.cellType === 'wall' || def.cellType === 'container-type' || def.cellType === 'afval-type') {
+            groupId = def.cellType;
+            label = def.label || (def.cellType === 'container-type' ? 'Container' : def.cellType === 'afval-type' ? 'Afval' : '');
+          } else if (def.cellType && def.cellType.startsWith('custom-')) {
+            groupId = def.cellType + '|' + (def.label || '');
+            label = def.label || '';
+          } else if (def.cellType === 'zak') {
+            // Check if this zak has material
+            const rij = def.meta?.rij; const layer = def.meta?.layer;
+            if (rij && layer) {
+              const zd = zakData[`${rij}-${layer}`];
+              if (zd && zd.type && zd.type !== 'Empty') {
+                groupId = 'zak-mat|' + zd.type;
+                label = zd.type;
+                verticalOnly = true;
+              }
+            }
+          } else if (def.cellType === 'bunker-filled') {
+            groupId = 'bunker|' + (def.label || '');
+            label = def.label || '';
+          }
+
+          if (groupId) {
+            if (!mergeGroups[groupId]) mergeGroups[groupId] = { cells: [], label, verticalOnly, cellType: def.cellType, color: def.meta?.color || '' };
+            mergeGroups[groupId].cells.push({ c, r, key });
           }
         }
 
-        const merged = new Set();
-        const regions = findMergedRegions(layout, mergeableTypes);
+        // Find merged regions for each group
+        const regions = [];
+        for (const group of Object.values(mergeGroups)) {
+          if (group.cells.length < 2) continue;
+          const cellSet = new Set(group.cells.map(c => c.key));
+          const groupVisited = new Set();
+
+          for (const cell of group.cells) {
+            if (groupVisited.has(cell.key)) continue;
+
+            // BFS to find connected component
+            const component = new Set();
+            const queue = [cell.key];
+            while (queue.length > 0) {
+              const cur = queue.shift();
+              if (component.has(cur) || !cellSet.has(cur) || groupVisited.has(cur)) continue;
+              component.add(cur);
+              const [cc, cr] = cur.split(',').map(Number);
+              if (group.verticalOnly) {
+                // Only vertical neighbors
+                [`${cc},${cr-1}`, `${cc},${cr+1}`].forEach(nk => { if (cellSet.has(nk) && !component.has(nk)) queue.push(nk); });
+              } else {
+                [[cc-1,cr],[cc+1,cr],[cc,cr-1],[cc,cr+1]].forEach(([nc,nr]) => { const nk = `${nc},${nr}`; if (cellSet.has(nk) && !component.has(nk)) queue.push(nk); });
+              }
+            }
+
+            if (component.size < 2) { groupVisited.add(cell.key); continue; }
+
+            // Find bounding box
+            let minC=999,maxC=-1,minR=999,maxR=-1;
+            for (const k of component) { const [c,r]=k.split(',').map(Number); if(c<minC)minC=c;if(c>maxC)maxC=c;if(r<minR)minR=r;if(r>maxR)maxR=r; }
+
+            // Check if perfect rectangle
+            let perfect = true;
+            for (let r=minR;r<=maxR&&perfect;r++) for (let c=minC;c<=maxC;c++) if (!component.has(`${c},${r}`)) { perfect=false; break; }
+
+            const keys = [...component];
+            keys.forEach(k => { groupVisited.add(k); merged.add(k); });
+            regions.push({ cellType: group.cellType, minC, maxC, minR, maxR, keys, label: group.label, color: group.color });
+          }
+        }
 
         // Render merged regions
         regions.forEach(region => {
-          region.keys.forEach(k => merged.add(k));
           const el = document.createElement('div');
-          el.className = 'merged-region ' + region.cellType;
+          el.className = 'merged-region';
           el.style.left = (region.minC * CW) + 'px';
           el.style.top = (region.minR * CH) + 'px';
           el.style.width = ((region.maxC - region.minC + 1) * CW - 1) + 'px';
           el.style.height = ((region.maxR - region.minR + 1) * CH - 1) + 'px';
-          if (region.cellType.startsWith('custom-') && region.color) {
-            el.style.background = region.color;
-            el.style.borderColor = region.color;
+
+          // Style based on type
+          if (region.cellType === 'wall') { el.style.background = '#2c3e50'; el.style.border = '3px solid #1a252f'; el.style.color = '#7f8c8d'; }
+          else if (region.cellType === 'container-type') { el.style.background = '#7f8c8d'; el.style.border = '2px solid #566573'; el.style.color = '#fff'; }
+          else if (region.cellType === 'afval-type') { el.style.background = '#95a5a6'; el.style.border = '2px solid #7f8c8d'; el.style.color = '#fff'; }
+          else if (region.cellType === 'bunker-filled') { el.style.background = '#e67e22'; el.style.border = '2px solid #d35400'; el.style.color = '#fff'; }
+          else if (region.cellType === 'zak') {
+            // Zak with material — use the material color
+            const css = cssFromType(region.label);
+            const colors = { S01:'#5dade2', S02:'#2e86c1', S17:'#f0b27a', T01:'#ec7063', T02:'#58d68d', T17:'#dc7633', DVRMI050:'#f0b27a', DVRNA050:'#82e0aa', LUMPS:'#85c1e9', Quarantine:'#c39bd3' };
+            el.style.background = colors[css] || '#5dade2';
+            el.style.border = '2px solid rgba(0,0,0,0.15)';
             el.style.color = '#fff';
           }
-          el.textContent = region.label || '';
+          else if (region.color) { el.style.background = region.color; el.style.border = `2px solid ${region.color}`; el.style.color = '#fff'; }
+          else { el.style.background = '#bdc3c7'; el.style.border = '2px solid #95a5a6'; el.style.color = '#333'; }
+
+          // Label
+          const parts = (region.label || '').split(' ');
+          if (parts.length >= 2 && region.cellType === 'zak') {
+            el.innerHTML = `<span style="font-size:inherit">${parts[0]}</span><br><span style="font-size:9px;opacity:0.85">${parts.slice(1).join(' ')}</span>`;
+          } else {
+            el.textContent = region.label || '';
+          }
           container.appendChild(el);
         });
 
