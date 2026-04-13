@@ -605,7 +605,7 @@
 
     // ── Data ──
     function getLayout() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
-    function saveLayout() { localStorage.setItem(STORAGE_KEY, JSON.stringify(layout)); syncLayoutToServer(); }
+    function saveLayout() { localStorage.setItem(STORAGE_KEY, JSON.stringify(layout)); }
     function getZakData() { try { return JSON.parse(localStorage.getItem(ZAK_DATA_KEY)) || {}; } catch { return {}; } }
     function saveZakData(d) { localStorage.setItem(ZAK_DATA_KEY, JSON.stringify(d)); }
     function getQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch { return []; } }
@@ -680,21 +680,45 @@
 
     // ── Init ──
     document.addEventListener('DOMContentLoaded', async () => {
-      // Load layout: try localStorage first, then default
-      const savedLayout = getLayout();
-      if (Object.keys(savedLayout).length > 0) {
-        layout = savedLayout;
-      } else {
-        layout = getDefaultLayout();
-        saveLayout();
-      }
-      renderGrid();
+      // Load layout: try server first, then localStorage, then default
       loadCustomCSS();
       updateOnline(); updatePending(); registerSW();
       loadMaterials(); loadAllMaterials();
-      pullLayoutFromServer().then(() => {
-        pullFromServer().then(() => trySync());
-      });
+
+      // Step 1: show localStorage immediately (fast)
+      const savedLayout = getLayout();
+      if (Object.keys(savedLayout).length > 0) {
+        layout = savedLayout;
+        renderGrid();
+      }
+
+      // Step 2: try to get server data (overwrites if newer)
+      if (navigator.onLine) {
+        try {
+          const res = await fetch('/api/layout');
+          if (res.ok) {
+            const rows = await res.json();
+            if (rows.length > 0) {
+              layout = {};
+              rows.forEach(r => {
+                layout[`${r.col},${r.row}`] = { cellType: r.cell_type, label: r.label || '', meta: r.meta || {} };
+              });
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+              renderGrid();
+              console.log('Layout from server:', rows.length, 'cells');
+            }
+          }
+        } catch (e) { console.log('Server unreachable, using local data'); }
+      }
+
+      // Step 3: if still empty, use default
+      if (Object.keys(layout).length === 0) {
+        layout = getDefaultLayout();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+        renderGrid();
+      }
+
+      pullFromServer().then(() => trySync());
       setInterval(trySync, SYNC_INTERVAL);
       window.addEventListener('online', () => { updateOnline(); pullFromServer().then(() => trySync()); });
       window.addEventListener('offline', updateOnline);
