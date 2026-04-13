@@ -408,15 +408,22 @@
       }
       // Ensure zak cells always have rij/layer from nearby zak-num
       if (def.cellType === 'zak' && !el.dataset.rij) {
-        // Try to find rij from zak-num in same column
-        for (let searchR = row - 15; searchR <= row + 15; searchR++) {
-          const nk = `${col},${searchR}`;
-          const nd = layout[nk];
-          if (nd && nd.cellType === 'zak-num' && nd.meta && nd.meta.rij) {
-            el.dataset.rij = String(nd.meta.rij);
-            el.dataset.layer = String(Math.abs(row - searchR));
-            break;
+        // Try to find rij from zak-num in same column — search wider range
+        for (let searchR = 0; searchR < 100; searchR++) {
+          // Search both up and down
+          for (const dir of [row - searchR, row + searchR]) {
+            const nk = `${col},${dir}`;
+            const nd = layout[nk];
+            if (nd && nd.cellType === 'zak-num') {
+              const rij = nd.meta?.rij || nd.label;
+              if (rij) {
+                el.dataset.rij = String(rij);
+                el.dataset.layer = String(Math.abs(row - dir));
+                break;
+              }
+            }
           }
+          if (el.dataset.rij) break;
         }
       }
 

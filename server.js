@@ -62,14 +62,27 @@ app.post('/api/sync', async (req, res) => {
     return res.status(400).json({ error: 'No changes provided' });
   }
 
+  // Filter out invalid entries server-side
+  const valid = changes.filter(c => 
+    c.row_num !== undefined && c.row_num !== null && c.row_num !== 'undefined' &&
+    c.layer !== undefined && c.layer !== null && !isNaN(Number(c.layer)) &&
+    c.type !== undefined
+  );
+
+  if (valid.length === 0) {
+    return res.json({ ok: true, applied: 0, skipped: changes.length });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     let applied = 0;
 
-    for (const c of changes) {
-      const { row_num, layer, type, updated_at } = c;
-      // Upsert: only apply if incoming timestamp is newer
+    for (const c of valid) {
+      const row_num = c.row_num;
+      const layer = Number(c.layer);
+      const type = c.type || 'Empty';
+      const updated_at = c.updated_at || Date.now();
       const result = await client.query(`
         INSERT INTO yard_cells (row_num, layer, type, updated_at)
         VALUES ($1, $2, $3, $4)
@@ -81,7 +94,7 @@ app.post('/api/sync', async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ok: true, applied });
+    res.json({ ok: true, applied, skipped: changes.length - valid.length });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/sync error:', err);
