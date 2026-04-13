@@ -187,20 +187,31 @@ app.post('/api/layout/sync', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const c of cells) {
-      if (c.cell_type === 'empty' || !c.cell_type) {
-        await client.query('DELETE FROM yard_layout WHERE col=$1 AND row=$2', [c.col, c.row]);
-      } else {
-        await client.query(`
-          INSERT INTO yard_layout (col, row, cell_type, label, meta, updated_at)
-          VALUES ($1,$2,$3,$4,$5,$6)
-          ON CONFLICT (col, row) DO UPDATE SET cell_type=$3, label=$4, meta=$5, updated_at=$6
-          WHERE yard_layout.updated_at < $6
-        `, [c.col, c.row, c.cell_type, c.label || '', JSON.stringify(c.meta || {}), c.updated_at || Date.now()]);
+    // Clear all and re-insert — simple and deadlock-free
+    await client.query('DELETE FROM yard_layout');
+    
+    // Batch insert in chunks of 100
+    const activeCells = cells.filter(c => c.cell_type && c.cell_type !== 'empty');
+    for (let i = 0; i < activeCells.length; i += 100) {
+      const chunk = activeCells.slice(i, i + 100);
+      const values = [];
+      const params = [];
+      chunk.forEach((c, idx) => {
+        const offset = idx * 6;
+        values.push(`($${offset+1},$${offset+2},$${offset+3},$${offset+4},$${offset+5},$${offset+6})`);
+        params.push(c.col, c.row, c.cell_type, c.label || '', JSON.stringify(c.meta || {}), c.updated_at || Date.now());
+      });
+      if (values.length > 0) {
+        await client.query(
+          `INSERT INTO yard_layout (col, row, cell_type, label, meta, updated_at) VALUES ${values.join(',')}`,
+          params
+        );
       }
     }
+    
     await client.query('COMMIT');
-    res.json({ ok: true });
+    console.log(`Layout saved: ${activeCells.length} cells`);
+    res.json({ ok: true, saved: activeCells.length });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/layout/sync error:', err);
