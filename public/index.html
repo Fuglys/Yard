@@ -548,12 +548,22 @@
       if (!paintTool || !selectedCells.length) return;
       pushUndo();
       if (paintTool.cellType === 'zak-num') {
-        numCounter = parseInt(document.getElementById('numFrom').value) || 1;
-        paintTool.numTo = parseInt(document.getElementById('numTo').value) || 999;
+        const from = parseInt(document.getElementById('numFrom').value) || 1;
+        const to = parseInt(document.getElementById('numTo').value) || 999;
+        numCounter = from;
+        paintTool.numFrom = from;
+        paintTool.numTo = to;
+        paintTool.numStep = from <= to ? 1 : -1;
       }
-      selectedCells.forEach(el => applyPaintToCell(el));
+      // Sort cells left-to-right, top-to-bottom for consistent numbering
+      const sorted = [...selectedCells].sort((a, b) => {
+        const ra = parseInt(a.dataset.row), rb = parseInt(b.dataset.row);
+        const ca = parseInt(a.dataset.col), cb = parseInt(b.dataset.col);
+        return ra !== rb ? ra - rb : ca - cb;
+      });
+      sorted.forEach(el => applyPaintToCell(el));
       clearSelection();
-      showToast(`${selectedCells.length || 'Vlakken'} ingevuld`);
+      showToast(`${sorted.length} vlakken ingevuld`);
     }
 
     function applyPaintToCell(el) {
@@ -572,9 +582,11 @@
 
       let label = paintTool.label;
       if (paintTool.cellType === 'zak-num') {
-        if (numCounter > paintTool.numTo) return;
+        const step = paintTool.numStep || 1;
+        if (step > 0 && numCounter > paintTool.numTo) return;
+        if (step < 0 && numCounter < paintTool.numTo) return;
         label = String(numCounter);
-        numCounter++;
+        numCounter += step;
       }
 
       layout[key] = {
