@@ -87,25 +87,25 @@
       const L = {};
       function set(c, r, type, label, meta) { L[`${c},${r}`] = { cellType: type, label: label || '', meta: meta || {} }; }
       // Top section: rij 120..66 — numbers at row 0 and row 14, zak cells rows 1-13
-      // Rightmost zak (rij 66) at col 94 (5 from right edge), rij 120 at col 40
+      // Rightmost zak (rij 66) at col 119 (5 from right edge of 125), rij 120 at col 65
       for (let rij = 120; rij >= 66; rij--) {
-        const col = 94 - (rij - 66);
+        const col = 119 - (rij - 66);
         set(col, 0, 'zak-num', String(rij), { rij });
         set(col, 14, 'zak-num', String(rij), { rij });
         for (let l = 1; l <= 13; l++) set(col, l, 'zak', '', { rij, layer: l });
       }
       // Bottom section: E1,E2,E3 + rij 55..1 — starts at row 17
       const botY = 17;
-      // Rij 1 at col 94, rij 55 at col 40, E cols at 37,38,39
+      // Rij 1 at col 119, rij 55 at col 65, E cols at 62,63,64
       for (let i = 0; i < 3; i++) {
-        set(37 + i, botY, 'zak-num', '', { rij: 'E' + (i + 1) });
-        set(37 + i, botY + 14, 'zak-num', '', { rij: 'E' + (i + 1) });
-        for (let l = 1; l <= 13; l++) set(37 + i, botY + l, 'zak', '', { rij: 'E' + (i + 1), layer: l });
+        set(62 + i, botY, 'zak-num', '', { rij: 'E' + (i + 1) });
+        set(62 + i, botY + 14, 'zak-num', '', { rij: 'E' + (i + 1) });
+        for (let l = 1; l <= 13; l++) set(62 + i, botY + l, 'zak', '', { rij: 'E' + (i + 1), layer: l });
       }
-      // Gap col 39->40
-      // Rij 55 at col 40, rij 1 at col 94
+      // Gap col 64->65
+      // Rij 55 at col 65, rij 1 at col 119
       for (let rij = 55; rij >= 1; rij--) {
-        const col = 40 + (55 - rij);
+        const col = 65 + (55 - rij);
         set(col, botY, 'zak-num', String(rij), { rij });
         set(col, botY + 14, 'zak-num', String(rij), { rij });
         for (let l = 1; l <= 13; l++) set(col, botY + l, 'zak', '', { rij, layer: l });
@@ -882,6 +882,11 @@
       loadMaterials(); loadAllMaterials();
 
       // Step 1: show localStorage immediately (fast)
+      // Force reset for new zak positions
+      if (localStorage.getItem('yard_layout_version') !== 'v3') {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.setItem('yard_layout_version', 'v3');
+      }
       const savedLayout = getLayout();
       if (Object.keys(savedLayout).length > 0) {
         layout = savedLayout;
