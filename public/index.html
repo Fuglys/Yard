@@ -507,7 +507,23 @@
         showToast('Lokaal opgeslagen (offline)');
       }
     }
-    async function pullLayoutFromServer() { if (!navigator.onLine) return; try { const res = await fetch('/api/layout'); if (!res.ok) return; const rows = await res.json(); if (rows.length > 0) { layout = {}; rows.forEach(r => { layout[`${r.col},${r.row}`] = { cellType: r.cell_type, label: r.label || '', meta: r.meta || {} }; }); saveLayout(); } } catch (e) {} }
+    async function pullLayoutFromServer() {
+      if (!navigator.onLine) return;
+      try {
+        const res = await fetch('/api/layout');
+        if (!res.ok) return;
+        const rows = await res.json();
+        if (rows.length > 0) {
+          layout = {};
+          rows.forEach(r => {
+            layout[`${r.col},${r.row}`] = { cellType: r.cell_type, label: r.label || '', meta: r.meta || {} };
+          });
+          saveLayout();
+          renderGrid();
+          console.log('Layout loaded from server:', rows.length, 'cells');
+        }
+      } catch (e) { console.log('Pull layout failed:', e); }
+    }
     async function trySync() { if (syncInProgress || !navigator.onLine) return; const q = getQueue(); if (!q.length) return; syncInProgress = true; try { const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: q }) }); if (r.ok) { saveQueue([]); showToast(`${q.length} gesynchroniseerd`); } } catch (e) {} finally { syncInProgress = false; } }
     async function pullFromServer() { if (!navigator.onLine) return; try { const r = await fetch('/api/cells'); if (!r.ok) return; const rows = await r.json(); const zd = getZakData(); let u = false; rows.forEach(r => { const k = `${r.row_num}-${r.layer}`; const l = zd[k]; if (!l || r.updated_at > l.updated_at) { const css = cssFromType(r.type); zd[k] = { type: r.type, cssClass: css, updated_at: r.updated_at }; u = true; } }); if (u) { saveZakData(zd); loadZakDataToGrid(); } } catch (e) {} }
 
@@ -544,8 +560,9 @@
       loadCustomCSS();
       updateOnline(); updatePending(); registerSW();
       loadMaterials(); loadAllMaterials();
-      pullLayoutFromServer().then(() => { if (Object.keys(layout).length > 0) renderGrid(); });
-      pullFromServer().then(() => trySync());
+      pullLayoutFromServer().then(() => {
+        pullFromServer().then(() => trySync());
+      });
       setInterval(trySync, SYNC_INTERVAL);
       window.addEventListener('online', () => { updateOnline(); pullFromServer().then(() => trySync()); });
       window.addEventListener('offline', updateOnline);
