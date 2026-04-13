@@ -178,9 +178,9 @@
           let label = '';
           let verticalOnly = false;
 
-          if (def.cellType === 'wall' || def.cellType === 'container-type' || def.cellType === 'afval-type') {
+          if (def.cellType === 'container-type' || def.cellType === 'afval-type') {
             groupId = def.cellType;
-            label = def.label || (def.cellType === 'container-type' ? 'Container' : def.cellType === 'afval-type' ? 'Afval' : '');
+            label = def.label || (def.cellType === 'container-type' ? 'Container' : 'Afval');
           } else if (def.cellType && def.cellType.startsWith('custom-')) {
             groupId = def.cellType + '|' + (def.label || '');
             label = def.label || '';
