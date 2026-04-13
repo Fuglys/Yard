@@ -110,3 +110,24 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .login-btn{width:100%;padding:10px;border:none;border-radius:8px;background:#2e86c1;color:#fff;font-weight:700;font-size:.85rem;cursor:pointer;transition:background .15s}
 .login-btn:hover{background:#2471a3}
 .login-error{color:#e74c3c;font-size:.75rem;margin-top:4px}
+
+/* ── Edit Panel ── */
+.edit-panel{display:none;position:fixed;top:46px;right:0;bottom:0;width:180px;background:#fff;border-left:1px solid #e0e3e8;z-index:150;overflow-y:auto;padding:10px;box-shadow:-2px 0 8px rgba(0,0,0,0.06)}
+.edit-panel.open{display:block}
+.ep-title{font-size:.8rem;font-weight:800;color:#2c3e50;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e0e3e8}
+.ep-section{font-size:.6rem;font-weight:700;color:#95a5a6;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px}
+.ep-btn{display:block;width:100%;padding:7px 8px;border:1px solid #e0e3e8;border-radius:6px;font-size:.7rem;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px;background:#f7f8fa;color:#333;transition:all .15s}
+.ep-btn:hover{background:#eef2f7}
+.ep-btn.active{outline:2px solid #2e86c1;background:#e8f4fd}
+.ep-wall{border-left:4px solid #2c3e50}.ep-container{border-left:4px solid #7f8c8d}.ep-afval{border-left:4px solid #95a5a6}
+.ep-bunker{border-left:4px solid #e67e22}.ep-zak{border-left:4px solid #5dade2}.ep-zaknum{border-left:4px solid #3949ab}
+.ep-eraser{border-left:4px solid #e74c3c;color:#e74c3c}
+.ep-save{background:#27ae60;color:#fff;border-color:#27ae60;text-align:center;font-weight:700;margin-top:4px}
+.ep-save:hover{background:#219a52}
+.ep-add{background:#2e86c1;color:#fff;border-color:#2e86c1;text-align:center}
+.ep-num-row{display:flex;gap:4px;margin-bottom:4px}
+.ep-num-input{width:50%;padding:5px;border:1px solid #e0e3e8;border-radius:5px;font-size:.7rem;background:#f7f8fa;color:#333;outline:none}
+.ep-text-input{width:100%;padding:5px;border:1px solid #e0e3e8;border-radius:5px;font-size:.7rem;background:#f7f8fa;color:#333;outline:none;margin-bottom:4px}
+.ep-color-input{width:100%;height:28px;border:1px solid #e0e3e8;border-radius:5px;cursor:pointer;margin-bottom:4px;padding:2px}
+.ep-check{display:flex;align-items:center;gap:4px;font-size:.65rem;color:#666;margin-bottom:6px}
+.ep-active{margin-top:8px;padding:6px;background:#f0f2f5;border-radius:6px;font-size:.65rem;color:#666;text-align:center;font-weight:600}
