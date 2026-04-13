@@ -145,7 +145,6 @@
     function createCellElement(container, col, row, def, editMode) {
       const key = `${col},${row}`;
       const el = document.createElement('div');
-      // In edit mode, offset by 1 cell for numbering
       const offsetX = editMode ? (col + 1) * CW : col * CW;
       const offsetY = editMode ? (row + 1) * CH : row * CH;
       el.style.left = offsetX + 'px';
@@ -168,12 +167,23 @@
         el.className = 'gc wall';
       } else if (def.cellType === 'container-type') {
         el.className = 'gc container-type';
-        el.textContent = 'Container';
+        el.textContent = def.label || 'Container';
       } else if (def.cellType === 'afval-type') {
         el.className = 'gc afval-type';
-        el.textContent = 'Afval';
+        el.textContent = def.label || 'Afval';
       } else if (def.cellType === 'bunker-type') {
         el.className = 'gc bunker-type';
+      } else if (def.cellType === 'bunker-filled') {
+        el.className = 'gc bunker-filled';
+        el.textContent = def.label || '';
+      } else if (def.cellType && def.cellType.startsWith('custom-')) {
+        // Custom type — use color from meta
+        el.className = 'gc';
+        const color = (def.meta && def.meta.color) || '#7f8c8d';
+        el.style.background = color;
+        el.style.color = '#fff';
+        el.style.borderColor = color;
+        el.textContent = def.label || '';
       } else {
         el.className = 'gc ' + def.cellType;
         el.textContent = def.label || '';
@@ -365,7 +375,7 @@
         }
         // Inject CSS for this custom type
         injectCustomCSS(cls, color);
-        setLayoutType(cls, editable, name);
+        setLayoutType(cls, editable, name, color);
       });
       g.appendChild(addBtn);
 
@@ -378,7 +388,7 @@
           const b = document.createElement('button'); b.className = 'type-btn';
           b.style.cssText = `background:${ct.color};color:#fff;min-width:100px;`;
           b.textContent = (ct.editable ? '✎ ' : '🔒 ') + ct.name;
-          b.addEventListener('click', () => setLayoutType(ct.cls, ct.editable, ct.name));
+          b.addEventListener('click', () => setLayoutType(ct.cls, ct.editable, ct.name, ct.color));
           r4.appendChild(b);
         });
         g.appendChild(r4);
@@ -407,12 +417,12 @@
       customTypes.forEach(ct => injectCustomCSS(ct.cls, ct.color));
     }
 
-    function setLayoutType(cellType, editable, label) {
+    function setLayoutType(cellType, editable, label, color) {
       const ts = Date.now();
       const autoLabel = cellType === 'container-type' ? 'Container' : cellType === 'afval-type' ? 'Afval' : label || '';
       selectedCells.forEach(el => {
         const key = `${el.dataset.col},${el.dataset.row}`;
-        layout[key] = { cellType, label: autoLabel, meta: { editable: !!editable } };
+        layout[key] = { cellType, label: autoLabel, meta: { editable: !!editable, color: color || '' } };
       });
       saveLayout(); renderGrid(); closeModal(); showToast(`${selectedCells.length} ingesteld`);
     }
