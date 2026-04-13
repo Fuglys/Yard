@@ -133,13 +133,101 @@
           }
         }
       } else {
-        // Normal mode: only defined cells, no offset needed
+        // Normal mode: merge non-editable adjacent cells, render editable individually
+        const mergeableTypes = new Set(['wall', 'container-type', 'afval-type']);
+        const horizontalOnlyTypes = new Set(['zak-num']);
+        // Also include custom non-editable types
         for (const [key, def] of Object.entries(layout)) {
+          if (def.cellType && def.cellType.startsWith('custom-') && def.meta && !def.meta.editable) {
+            mergeableTypes.add(def.cellType);
+          }
+        }
+
+        const merged = new Set(); // keys already merged
+        const regions = findMergedRegions(layout, mergeableTypes, horizontalOnlyTypes);
+
+        // Render merged regions as single large elements
+        regions.forEach(region => {
+          region.keys.forEach(k => merged.add(k));
+          const el = document.createElement('div');
+          el.className = 'merged-region ' + region.cellType;
+          el.style.left = (region.minC * CW) + 'px';
+          el.style.top = (region.minR * CH) + 'px';
+          el.style.width = ((region.maxC - region.minC + 1) * CW - 1) + 'px';
+          el.style.height = ((region.maxR - region.minR + 1) * CH - 1) + 'px';
+          // Custom color from meta
+          if (region.cellType.startsWith('custom-') && region.color) {
+            el.style.background = region.color;
+            el.style.borderColor = region.color;
+            el.style.color = '#fff';
+          }
+          el.textContent = region.label || '';
+          container.appendChild(el);
+        });
+
+        // Render remaining cells individually
+        for (const [key, def] of Object.entries(layout)) {
+          if (merged.has(key)) continue;
           const [c, r] = key.split(',').map(Number);
           createCellElement(container, c, r, def, false);
         }
       }
       loadZakDataToGrid();
+    }
+
+    // Greedy rectangle merge for non-editable types
+    function findMergedRegions(layout, mergeableTypes, horizontalOnlyTypes) {
+      const regions = [];
+      const visited = new Set();
+      const allMergeable = new Set([...mergeableTypes, ...horizontalOnlyTypes]);
+
+      const byType = {};
+      for (const [key, def] of Object.entries(layout)) {
+        if (!allMergeable.has(def.cellType)) continue;
+        if (!byType[def.cellType]) byType[def.cellType] = [];
+        const [c, r] = key.split(',').map(Number);
+        byType[def.cellType].push({ c, r, key, def });
+      }
+
+      for (const [cellType, cells] of Object.entries(byType)) {
+        const cellSet = new Set(cells.map(c => c.key));
+        const hOnly = horizontalOnlyTypes.has(cellType);
+
+        for (const cell of cells) {
+          if (visited.has(cell.key)) continue;
+
+          let maxC = cell.c;
+          let maxR = cell.r;
+
+          // Expand right
+          while (cellSet.has(`${maxC + 1},${cell.r}`) && !visited.has(`${maxC + 1},${cell.r}`)) maxC++;
+
+          // Expand down (skip for horizontal-only types)
+          if (!hOnly) {
+            let canExpand = true;
+            while (canExpand) {
+              for (let c = cell.c; c <= maxC; c++) {
+                if (!cellSet.has(`${c},${maxR + 1}`) || visited.has(`${c},${maxR + 1}`)) {
+                  canExpand = false; break;
+                }
+              }
+              if (canExpand) maxR++;
+            }
+          }
+
+          const keys = [];
+          for (let r = cell.r; r <= maxR; r++) {
+            for (let c = cell.c; c <= maxC; c++) {
+              keys.push(`${c},${r}`); visited.add(`${c},${r}`);
+            }
+          }
+
+          const label = cells.find(c => c.key === cell.key)?.def.label || '';
+          const color = cells.find(c => c.key === cell.key)?.def.meta?.color || '';
+          regions.push({ cellType, minC: cell.c, maxC, minR: cell.r, maxR, keys, label, color });
+        }
+      }
+      return regions;
     }
 
     function createCellElement(container, col, row, def, editMode) {
