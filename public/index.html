@@ -90,10 +90,8 @@
 
       if (adminMode) {
         // Only render around existing layout + padding, not full 100x100
-        const bounds = getLayoutBounds();
-        const pad = 30;
-        const minC = Math.max(0, bounds.minC - pad), maxC = Math.min(GRID_SIZE - 1, bounds.maxC + pad);
-        const minR = Math.max(0, bounds.minR - pad), maxR = Math.min(GRID_SIZE - 1, bounds.maxR + pad);
+        const minC = 0, maxC = GRID_SIZE - 1;
+        const minR = 0, maxR = GRID_SIZE - 1;
 
         // Column numbers
         for (let c = minC; c <= maxC; c++) {
