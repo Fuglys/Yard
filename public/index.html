@@ -135,7 +135,6 @@
       } else {
         // Normal mode: merge non-editable adjacent cells, render editable individually
         const mergeableTypes = new Set(['wall', 'container-type', 'afval-type']);
-        const horizontalOnlyTypes = new Set(['zak-num']);
         // Also include custom non-editable types
         for (const [key, def] of Object.entries(layout)) {
           if (def.cellType && def.cellType.startsWith('custom-') && def.meta && !def.meta.editable) {
@@ -143,10 +142,10 @@
           }
         }
 
-        const merged = new Set(); // keys already merged
-        const regions = findMergedRegions(layout, mergeableTypes, horizontalOnlyTypes);
+        const merged = new Set();
+        const regions = findMergedRegions(layout, mergeableTypes);
 
-        // Render merged regions as single large elements
+        // Render merged regions
         regions.forEach(region => {
           region.keys.forEach(k => merged.add(k));
           const el = document.createElement('div');
@@ -155,7 +154,6 @@
           el.style.top = (region.minR * CH) + 'px';
           el.style.width = ((region.maxC - region.minC + 1) * CW - 1) + 'px';
           el.style.height = ((region.maxR - region.minR + 1) * CH - 1) + 'px';
-          // Custom color from meta
           if (region.cellType.startsWith('custom-') && region.color) {
             el.style.background = region.color;
             el.style.borderColor = region.color;
@@ -176,55 +174,91 @@
     }
 
     // Greedy rectangle merge for non-editable types
-    function findMergedRegions(layout, mergeableTypes, horizontalOnlyTypes) {
+    function findMergedRegions(layout, mergeableTypes) {
       const regions = [];
       const visited = new Set();
-      const allMergeable = new Set([...mergeableTypes, ...horizontalOnlyTypes]);
 
-      const byType = {};
+      // Build lookup: type+label -> set of "c,r"
+      const groups = {};
       for (const [key, def] of Object.entries(layout)) {
-        if (!allMergeable.has(def.cellType)) continue;
-        if (!byType[def.cellType]) byType[def.cellType] = [];
-        const [c, r] = key.split(',').map(Number);
-        byType[def.cellType].push({ c, r, key, def });
+        if (!mergeableTypes.has(def.cellType)) continue;
+        const groupKey = def.cellType + '|' + (def.label || '');
+        if (!groups[groupKey]) groups[groupKey] = { cellType: def.cellType, label: def.label || '', color: def.meta?.color || '', cells: new Set() };
+        groups[groupKey].cells.add(key);
       }
 
-      for (const [cellType, cells] of Object.entries(byType)) {
-        const cellSet = new Set(cells.map(c => c.key));
-        const hOnly = horizontalOnlyTypes.has(cellType);
+      for (const group of Object.values(groups)) {
+        const cellSet = group.cells;
 
-        for (const cell of cells) {
-          if (visited.has(cell.key)) continue;
+        // Flood-fill to find connected components
+        const remaining = new Set(cellSet);
+        while (remaining.size > 0) {
+          const start = remaining.values().next().value;
+          const [sc, sr] = start.split(',').map(Number);
 
-          let maxC = cell.c;
-          let maxR = cell.r;
+          // BFS to find all connected cells of same type+label
+          const component = new Set();
+          const queue = [start];
+          while (queue.length > 0) {
+            const cur = queue.shift();
+            if (component.has(cur) || !remaining.has(cur)) continue;
+            component.add(cur);
+            remaining.delete(cur);
+            const [cc, cr] = cur.split(',').map(Number);
+            [[cc-1,cr],[cc+1,cr],[cc,cr-1],[cc,cr+1]].forEach(([nc,nr]) => {
+              const nk = `${nc},${nr}`;
+              if (remaining.has(nk) && !component.has(nk)) queue.push(nk);
+            });
+          }
 
-          // Expand right
-          while (cellSet.has(`${maxC + 1},${cell.r}`) && !visited.has(`${maxC + 1},${cell.r}`)) maxC++;
+          // Find bounding box of this component
+          let minC=999,maxC=-1,minR=999,maxR=-1;
+          const keys = [...component];
+          keys.forEach(k => {
+            const [c,r] = k.split(',').map(Number);
+            if(c<minC)minC=c;if(c>maxC)maxC=c;if(r<minR)minR=r;if(r>maxR)maxR=r;
+          });
 
-          // Expand down (skip for horizontal-only types)
-          if (!hOnly) {
-            let canExpand = true;
-            while (canExpand) {
-              for (let c = cell.c; c <= maxC; c++) {
-                if (!cellSet.has(`${c},${maxR + 1}`) || visited.has(`${c},${maxR + 1}`)) {
-                  canExpand = false; break;
+          // Check if bounding box is fully filled (perfect rectangle)
+          let isPerfectRect = true;
+          for (let r=minR;r<=maxR&&isPerfectRect;r++) {
+            for (let c=minC;c<=maxC;c++) {
+              if (!component.has(`${c},${r}`)) { isPerfectRect = false; break; }
+            }
+          }
+
+          if (isPerfectRect && keys.length > 1) {
+            keys.forEach(k => visited.add(k));
+            regions.push({ cellType: group.cellType, minC, maxC, minR, maxR, keys, label: group.label, color: group.color });
+          } else {
+            // Not a perfect rectangle — try to split into maximal rectangles
+            const subVisited = new Set();
+            const sorted = keys.map(k => k.split(',').map(Number)).sort((a,b) => a[1]-b[1] || a[0]-b[0]);
+            for (const [c,r] of sorted) {
+              const k = `${c},${r}`;
+              if (subVisited.has(k)) continue;
+              // Expand right
+              let mc = c;
+              while (component.has(`${mc+1},${r}`) && !subVisited.has(`${mc+1},${r}`)) mc++;
+              // Expand down
+              let mr = r;
+              let canDown = true;
+              while (canDown) {
+                for (let cc=c;cc<=mc;cc++) {
+                  if (!component.has(`${cc},${mr+1}`) || subVisited.has(`${cc},${mr+1}`)) { canDown=false; break; }
                 }
+                if (canDown) mr++;
               }
-              if (canExpand) maxR++;
+              const subKeys = [];
+              for (let rr=r;rr<=mr;rr++) for (let cc=c;cc<=mc;cc++) { subKeys.push(`${cc},${rr}`); subVisited.add(`${cc},${rr}`); visited.add(`${cc},${rr}`); }
+              if (subKeys.length > 1) {
+                regions.push({ cellType: group.cellType, minC:c, maxC:mc, minR:r, maxR:mr, keys:subKeys, label: group.label, color: group.color });
+              } else {
+                visited.add(k);
+                regions.push({ cellType: group.cellType, minC:c, maxC:c, minR:r, maxR:r, keys:[k], label: group.label, color: group.color });
+              }
             }
           }
-
-          const keys = [];
-          for (let r = cell.r; r <= maxR; r++) {
-            for (let c = cell.c; c <= maxC; c++) {
-              keys.push(`${c},${r}`); visited.add(`${c},${r}`);
-            }
-          }
-
-          const label = cells.find(c => c.key === cell.key)?.def.label || '';
-          const color = cells.find(c => c.key === cell.key)?.def.meta?.color || '';
-          regions.push({ cellType, minC: cell.c, maxC, minR: cell.r, maxR, keys, label, color });
         }
       }
       return regions;
