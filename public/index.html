@@ -283,11 +283,18 @@
           container.appendChild(el);
         });
 
-        // Render remaining cells individually
+        // Render remaining cells individually (including merged ones, but hidden behind merged regions)
         for (const [key, def] of Object.entries(layout)) {
-          if (merged.has(key)) continue;
           const [c, r] = key.split(',').map(Number);
-          createCellElement(container, c, r, def, false);
+          const el = createCellElement(container, c, r, def, false);
+          if (merged.has(key)) {
+            // Make invisible but still clickable
+            el.style.background = 'transparent';
+            el.style.border = 'none';
+            el.style.color = 'transparent';
+            el.style.zIndex = '3';
+            el.innerHTML = '';
+          }
         }
       }
       loadZakDataToGrid();
@@ -433,6 +440,7 @@
 
       container.appendChild(el);
       cellElements[key] = el;
+      return el;
     }
 
     function getLayoutBounds() {
