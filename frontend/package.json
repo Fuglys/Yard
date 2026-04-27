@@ -1,0 +1,24 @@
+{
+  "name": "yard-manager-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "svelte": "^5.20.0",
+    "svelte-check": "^4.1.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-pwa": "^0.21.1"
+  },
+  "dependencies": {
+    "dexie": "^4.0.10",
+    "konva": "^9.3.18"
+  }
+}

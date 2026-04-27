@@ -1,11 +1,16 @@
 {
   "name": "yard-manager",
-  "version": "1.0.0",
-  "description": "Yard Manager PWA with offline-first sync",
+  "version": "2.0.0",
+  "description": "Yard Manager v2 — offline-first PWA with Svelte + Konva + IndexedDB sync",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "init-db": "node init-db.js"
+    "init-db": "node init-db.js",
+    "migrate": "node migrations/run.js",
+    "import-legacy": "node migrations/002_import_legacy.js",
+    "build": "cd frontend && npm run build",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:install": "cd frontend && npm install"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

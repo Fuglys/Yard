@@ -1,0 +1,123 @@
+/* ── Yard Manager v3 — Design tokens (Daylight Tractor) ── */
+:root {
+  /* Neutrals — surfaces & text */
+  --bg-app: #F4F6F8;
+  --bg-surface: #FFFFFF;
+  --bg-sunken: #EEF1F4;
+  --bg-canvas: #F8FAFB;
+  --border-subtle: #E2E6EA;
+  --border-strong: #CBD5E1;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-tertiary: #94A3B8;
+
+  /* Mode identity */
+  --mode-view: #1F6FB2;
+  --mode-content: #1E8449;
+  --mode-layout: #C2540A;
+
+  /* Semantic accents */
+  --accent-primary: #1F6FB2;
+  --accent-success: #1E8449;
+  --accent-warning: #B7791F;
+  --accent-danger: #B91C1C;
+  --accent-zak: #0E7490;
+  --accent-bunker: #9A3412;
+
+  /* Typography sizes (size / line) */
+  --text-2xs: 10px;
+  --text-2xs-line: 14px;
+  --text-xs: 11px;
+  --text-xs-line: 16px;
+  --text-sm: 13px;
+  --text-sm-line: 18px;
+  --text-base: 15px;
+  --text-base-line: 22px;
+  --text-md: 17px;
+  --text-md-line: 24px;
+  --text-lg: 20px;
+  --text-lg-line: 28px;
+  --text-xl: 26px;
+  --text-xl-line: 32px;
+
+  /* Spacing scale (4-px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+  --shadow-2: 0 4px 12px rgba(15,23,42,.08);
+  --shadow-3: 0 12px 32px rgba(15,23,42,.14);
+  --shadow-4: 0 -10px 40px rgba(15,23,42,.18);
+}
+
+/* Tabular numerals utility — for rij/brush/count displays */
+.tnum { font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+
+/* ── Yard Manager v2 — Global styles ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; touch-action: none; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f2f5;
+  color: #1a1a2e;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+#app { height: 100%; display: flex; flex-direction: column; }
+
+/* Reusable: subtle elevated card */
+.card {
+  background: #fff;
+  border: 1px solid #e2e6ea;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Reusable buttons */
+.btn {
+  background: #fff;
+  border: 1px solid #d5d8dc;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c3e50;
+  transition: background .12s, border-color .12s, transform .08s;
+  user-select: none;
+}
+.btn:hover:not(:disabled) { background: #f7f8fa; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.primary { background: #2e86c1; color: #fff; border-color: #2471a3; }
+.btn.primary:hover:not(:disabled) { background: #2471a3; }
+.btn.success { background: #27ae60; color: #fff; border-color: #1e8449; }
+.btn.danger { background: #e74c3c; color: #fff; border-color: #c0392b; }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: rgba(0,0,0,0.04); }
+.btn.icon { padding: 6px 10px; min-width: 36px; }
+
+/* Pulse for sync indicator */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+/* Smooth fade for modals */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleIn { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }

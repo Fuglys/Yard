@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "graphify.serve",
+        "D:\\Agent Folder\\yard-manager\\graphify-out\\graph.json"
+      ]
+    }
+  }
+}
