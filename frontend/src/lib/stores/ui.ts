@@ -85,6 +85,135 @@ export const zakOrientationStore = createStore<'h' | 'v'>('h');
 // Rijnummer voor de volgende zakken-rij die geplaatst wordt. Gebruiker vult zelf in.
 export const zakRijNumStore = createStore<number>(1);
 
+// Traylijn-state: welk materiaal er momenteel op TL1 / TL2 draait.
+// S-codes (S01..S17) op een zak resolven tegen TL1, T-codes tegen TL2.
+// Granulaat-codes resolven autonoom (geen TL-koppeling).
+export interface TraylijnState {
+  tl1: string;
+  tl2: string;
+}
+const TRAYLIJN_STORAGE_KEY = 'yard_traylijn';
+function loadTraylijnInitial(): TraylijnState {
+  try {
+    const raw = localStorage.getItem(TRAYLIJN_STORAGE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return { tl1: String(p.tl1 || ''), tl2: String(p.tl2 || '') };
+    }
+  } catch {}
+  return { tl1: '', tl2: '' };
+}
+export const traylijnStore = createStore<TraylijnState>(loadTraylijnInitial());
+traylijnStore.subscribe((v) => {
+  try { localStorage.setItem(TRAYLIJN_STORAGE_KEY, JSON.stringify(v)); } catch {}
+});
+
+// Zak-anchors waar de gebruiker materiaal op wil zetten — opent het
+// ZakMaterialPopover. Eén anchor = klik op één zak; meerdere = drag-select
+// over meerdere LEGE zakken (gevulde zakken gaan via zakMultiSelectStore).
+export interface ZakPickerTarget {
+  anchors: Array<{ col: number; row: number }>;
+}
+export const zakPickerStore = createStore<ZakPickerTarget | null>(null);
+
+// Multi-select op zakken (rubber-band over meerdere anchors). Opent het
+// ZakMultiPopover met de optie om de hele groep naar een andere rij te
+// verplaatsen.
+export interface ZakMultiAnchor {
+  col: number;
+  row: number;
+  zakCode: string;
+  zakRij: string;
+  zakOrient: 'h' | 'v';
+}
+export const zakMultiSelectStore = createStore<{ anchors: ZakMultiAnchor[] } | null>(null);
+
+// Configureerbare lijst van zak-codes — gebruikers kunnen via TabCodes
+// codes toevoegen/verwijderen en bepalen of ze aan een traylijn gekoppeld
+// zijn. Default-set = de eerder hardcoded lijst.
+export interface ZakCodeConfig {
+  code: string;
+  tlLink: 'tl1' | 'tl2' | null;  // null = geen TL-prefix in display-naam
+}
+
+const DEFAULT_ZAK_CODES: ZakCodeConfig[] = [
+  { code: 'S01', tlLink: 'tl1' },
+  { code: 'S02', tlLink: 'tl1' },
+  { code: 'S03', tlLink: 'tl1' },
+  { code: 'S17', tlLink: 'tl1' },
+  { code: 'T01', tlLink: 'tl2' },
+  { code: 'T02', tlLink: 'tl2' },
+  { code: 'T03', tlLink: 'tl2' },
+  { code: 'T17', tlLink: 'tl2' },
+  { code: 'S29',  tlLink: null },
+  { code: 'S29A', tlLink: null },
+  { code: 'Granulaat Mix',     tlLink: null },
+  { code: 'Granulaat Naturel', tlLink: null },
+];
+
+const ZAK_CODES_STORAGE_KEY = 'yard_zakcodes';
+function loadZakCodesInitial(): ZakCodeConfig[] {
+  try {
+    const raw = localStorage.getItem(ZAK_CODES_STORAGE_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p) && p.length > 0) {
+        return p
+          .filter((c: any) => c && typeof c.code === 'string' && c.code.trim().length > 0)
+          .map((c: any) => ({
+            code: String(c.code).trim(),
+            tlLink: c.tlLink === 'tl1' || c.tlLink === 'tl2' ? c.tlLink : null,
+          }));
+      }
+    }
+  } catch {}
+  return DEFAULT_ZAK_CODES.map((c) => ({ ...c }));
+}
+
+export const zakCodesStore = createStore<ZakCodeConfig[]>(loadZakCodesInitial());
+zakCodesStore.subscribe((codes) => {
+  try { localStorage.setItem(ZAK_CODES_STORAGE_KEY, JSON.stringify(codes)); } catch {}
+});
+export function resetZakCodesToDefault() {
+  zakCodesStore.set(DEFAULT_ZAK_CODES.map((c) => ({ ...c })));
+}
+
+// Snel-lookup index — opnieuw opgebouwd bij elke store-update.
+let _codeIndex = new Map<string, ZakCodeConfig>(loadZakCodesInitial().map((c) => [c.code, c]));
+zakCodesStore.subscribe((codes) => {
+  _codeIndex = new Map(codes.map((c) => [c.code, c]));
+});
+
+// Resolve een zak-code naar de display-naam op basis van de huidige TL-state
+// EN de geconfigureerde tlLink in zakCodesStore. Onbekende codes (custom,
+// niet in de store) → as-is.
+export function resolveZakLabel(code: string | null | undefined, tl: TraylijnState): string {
+  if (!code) return '';
+  const cfg = _codeIndex.get(code);
+  if (cfg?.tlLink === 'tl1') return tl.tl1 ? `${tl.tl1} ${code}` : code;
+  if (cfg?.tlLink === 'tl2') return tl.tl2 ? `${tl.tl2} ${code}` : code;
+  return code;
+}
+
+// Geeft de TL-materiaalnaam terug die hoort bij een zak-code op het MOMENT
+// van plaatsen. Wordt opgeslagen in cell.meta.zakMaterial zodat het label
+// niet meeverandert wanneer de gebruiker later een ander materiaal op TL1
+// of TL2 zet. Codes zonder TL-koppeling → null.
+export function materialForZakCode(code: string | null | undefined, tl: TraylijnState): string | null {
+  if (!code) return null;
+  const cfg = _codeIndex.get(code);
+  if (cfg?.tlLink === 'tl1') return tl.tl1 || null;
+  if (cfg?.tlLink === 'tl2') return tl.tl2 || null;
+  return null;
+}
+
+// Strip de trailing " S" / " T" letter die in de DB-naam zit (bv. "Attewimi S")
+// — irrelevant voor display omdat de S/T al uit de code zelf blijkt.
+export function stripMaterialTLSuffix(name: string | null | undefined): string {
+  if (!name) return '';
+  return String(name).replace(/\s+[ST]$/i, '').trim();
+}
+
 // Inline place+assign flow: id van het laatst geplaatste vlak
 export const lastPlacedAreaId = createStore<number | string | null>(null);
 

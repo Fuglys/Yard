@@ -7,10 +7,11 @@
   import TabIndeling from './TabIndeling.svelte';
   import TabZakken from './TabZakken.svelte';
   import TabBalen from './TabBalen.svelte';
+  import TabCodes from './TabCodes.svelte';
   import ActiveToolChip from './ActiveToolChip.svelte';
   import BrushPopover from './BrushPopover.svelte';
 
-  type Tab = 'indeling' | 'zakken' | 'balen';
+  type Tab = 'indeling' | 'zakken' | 'balen' | 'codes';
   let activeTab = $state<Tab>('indeling');
   let brushOpen = $state(false);
 
@@ -61,6 +62,13 @@
         aria-selected={activeTab === 'balen'}
         onclick={() => (activeTab = 'balen')}
       >Balen</button>
+      <button
+        role="tab"
+        class="ep-tab"
+        class:active={activeTab === 'codes'}
+        aria-selected={activeTab === 'codes'}
+        onclick={() => (activeTab = 'codes')}
+      >Codes</button>
     </div>
 
     <div class="ep-body">
@@ -68,8 +76,10 @@
         <TabIndeling />
       {:else if activeTab === 'zakken'}
         <TabZakken />
-      {:else}
+      {:else if activeTab === 'balen'}
         <TabBalen />
+      {:else}
+        <TabCodes />
       {/if}
     </div>
 
@@ -143,7 +153,7 @@
     height: 48px;
     flex-shrink: 0;
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(4, 1fr);
     background: var(--bg-sunken);
     border-bottom: 1px solid var(--border-subtle);
   }

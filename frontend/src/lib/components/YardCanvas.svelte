@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { YardRenderer, type SelectionRect } from '../canvas/YardRenderer';
   import { areasStore, cellsStore, upsertArea, upsertCells, deleteCells, deleteArea, nextTempId } from '../stores/state';
-  import { paintToolStore, modeStore, inspectorAreaId, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore } from '../stores/ui';
+  import { paintToolStore, modeStore, inspectorAreaId, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore, zakPickerStore, zakMultiSelectStore, traylijnStore } from '../stores/ui';
   import { schedulePush } from '../sync/engine';
   import { history } from '../stores/history';
   import type { CellRow, AreaRow } from '../db/dexie';
@@ -440,27 +440,22 @@
   }
 
   // ── Overzicht: zak-blok selecteren ──────────────────────────────
-  // Open gewoon de inspector voor de bestaande zak-area (de rij).
-  // Geen nieuwe sub-area aanmaken — materiaal wordt op de hele rij gezet.
+  // Open de nieuwe ZakMaterialPopover met S/T/Granulaat-knoppen i.p.v.
+  // de Rij-area inspector. Materiaal wordt nu PER 2×2 zak opgeslagen via
+  // cell.meta.zakCode (geen sub-area meer per zak).
   async function handleViewZakSelect(col: number, row: number, cell: CellRow) {
     const cellsMap = cellsStore.get();
     // Zoek de anchor van dit 2×2 blok
     let anchorCol = col, anchorRow = row;
-    if (cell.meta?.zakAnchor) {
-      anchorCol = col; anchorRow = row;
-    } else {
-      for (const [dc, dr] of [[-1,0],[0,-1],[-1,-1]]) {
-        const nc = cellsMap.get(`${col+dc},${row+dr}`);
+    if (!cell.meta?.zakAnchor) {
+      for (const [dc, dr] of [[-1, 0], [0, -1], [-1, -1]] as Array<[number, number]>) {
+        const nc = cellsMap.get(`${col + dc},${row + dr}`);
         if (nc?.cell_type === 'zak' && nc?.meta?.zakAnchor) {
-          anchorCol = col+dc; anchorRow = row+dr; break;
+          anchorCol = col + dc; anchorRow = row + dr; break;
         }
       }
     }
-
-    const anchorCell = cellsMap.get(`${anchorCol},${anchorRow}`);
-    if (anchorCell?.area_id != null) {
-      openInspector(anchorCell.area_id);
-    }
+    zakPickerStore.set({ anchors: [{ col: anchorCol, row: anchorRow }] });
   }
 
   // ── Losse-selectie tool ──────────────────────────────────────────
@@ -595,16 +590,46 @@
     const cellsMap = cellsStore.get();
     const areasMap = areasStore.get();
 
-    // Verzamel alle bunker/custom-cellen in de selectie
-    const selected: CellRow[] = [];
+    // Categoriseer wat er in de selectie zit
+    const selected: CellRow[] = [];      // bunker/custom cellen
+    const zakAnchors: CellRow[] = [];    // zak-anchors (1 per 2×2 blok)
     for (let r = rect.row1; r <= rect.row2; r++) {
       for (let c = rect.col1; c <= rect.col2; c++) {
         const cell = cellsMap.get(`${c},${r}`);
-        if (cell && (cell.cell_type === 'bunker' || cell.cell_type === 'custom')) {
+        if (!cell) continue;
+        if (cell.cell_type === 'bunker' || cell.cell_type === 'custom') {
           selected.push(cell);
+        } else if (cell.cell_type === 'zak' && cell.meta?.zakAnchor) {
+          zakAnchors.push(cell);
         }
       }
     }
+
+    // Zak-selectie: alleen zak-anchors in selectie en geen bunker-cellen.
+    if (zakAnchors.length > 0 && selected.length === 0) {
+      // Routing op basis van inhoud:
+      //  - 1 zak (klik): altijd materiaal-picker (place/wijzig/wis)
+      //  - 2+ zakken, ALLE leeg: materiaal-picker (batch-plaatsen op alles)
+      //  - 2+ zakken, ten minste 1 gevuld: multi-popup (verplaatsen/verwijderen)
+      const hasFilled = zakAnchors.some((a) => !!a.meta?.zakCode);
+      if (zakAnchors.length === 1 || !hasFilled) {
+        zakPickerStore.set({
+          anchors: zakAnchors.map((a) => ({ col: a.col, row: a.row })),
+        });
+        return;
+      }
+      zakMultiSelectStore.set({
+        anchors: zakAnchors.map((a) => ({
+          col: a.col,
+          row: a.row,
+          zakCode: String(a.meta?.zakCode || ''),
+          zakRij: String(a.meta?.zakRij ?? a.meta?.zakNum ?? ''),
+          zakOrient: (a.meta?.zakOrient === 'v' ? 'v' : 'h') as 'h' | 'v',
+        })),
+      });
+      return;
+    }
+
     if (selected.length === 0) return;
 
     // Categoriseer cellen: in welke sub-areas-met-materiaal vallen ze, en
@@ -904,7 +929,12 @@
       onViewSelect: handleViewSelect,
       canViewSelect: (col, row) => {
         const cell = cellsStore.get().get(`${col},${row}`);
-        return !!cell && (cell.cell_type === 'bunker' || cell.cell_type === 'custom');
+        if (!cell) return false;
+        if (cell.cell_type === 'bunker' || cell.cell_type === 'custom') return true;
+        // Zak-cellen: snap rubber-band naar 2×2 anchor-grid zodat de
+        // selectie alleen in hele zak-blokken kan groeien.
+        if (cell.cell_type === 'zak') return '2x2' as const;
+        return false;
       },
       onBackgroundMoved: (x, y, autoCentered) => {
         // autoCentered = true → renderer heeft zelf gecentreerd bij eerste laad.
@@ -919,6 +949,7 @@
       },
     });
     renderer.lockAxis = lineLockStore.get();
+    renderer.tlStateGetter = () => traylijnStore.get();
     const initBrush = brushSizeStore.get();
     renderer.brushW = initBrush.w;
     renderer.brushH = initBrush.h;
@@ -1041,6 +1072,38 @@
     unsubs.push(pendingSelectionStore.subscribe((sel) => {
       if (!renderer) return;
       renderer.setPendingPreview(sel ? sel.cells.map((c) => ({ col: c.col, row: c.row })) : null);
+    }));
+
+    // Traylijn-state: tlStateGetter wijst direct naar traylijnStore.get()
+    // zodat renderCells altijd de actuele waarde leest. Bij elke verandering
+    // van de store force-rerenderen we zodat alle zak-labels opnieuw
+    // gegenereerd worden met de nieuwe TL-naam.
+    if (renderer) {
+      renderer.tlStateGetter = () => traylijnStore.get();
+    }
+    unsubs.push(traylijnStore.subscribe(() => {
+      if (!renderer) return;
+      rerender();
+    }));
+
+    // Zak-multi-select preview: teken de geselecteerde 2×2 anchors als
+    // dashed overlay (hergebruik pending-preview visueel).
+    unsubs.push(zakMultiSelectStore.subscribe((sel) => {
+      if (!renderer) return;
+      if (!sel) {
+        renderer.setPendingPreview(null);
+        return;
+      }
+      // Anchor = top-left van 2×2; vul alle 4 cellen voor de overlay
+      const cells: Array<{ col: number; row: number }> = [];
+      for (const a of sel.anchors) {
+        for (let dr = 0; dr < 2; dr++) {
+          for (let dc = 0; dc < 2; dc++) {
+            cells.push({ col: a.col + dc, row: a.row + dr });
+          }
+        }
+      }
+      renderer.setPendingPreview(cells);
     }));
 
     // Sub-selectie binnen een bestaande sub-area (voor partial-delete).

@@ -1,9 +1,10 @@
 // Canvas renderer met Konva — beheert grid achtergrond, cells, areas, selectie.
 // 4 layers, alleen die-die-veranderen worden opnieuw getekend.
 import Konva from 'konva';
-import { colorFor } from './colors';
+import { colorFor, colorForZakCode } from './colors';
 import { getWallPattern, WALL_TILE_W, WALL_TILE_H } from './patterns';
 import type { AreaRow, CellRow } from '../db/dexie';
+import { resolveZakLabel, stripMaterialTLSuffix, type TraylijnState } from '../stores/ui';
 
 export const CELL = 24; // pixel grootte per cel — small genoeg om 125x100 te tonen, groot genoeg voor touch
 export const GRID_COLS = 200;
@@ -23,8 +24,11 @@ interface RendererOptions {
   onSelectionChange?: (sel: SelectionRect | null) => void;
   // Rubber-band selectie in overzicht-modus (voor sub-vlak tekenen in bunker-velden)
   onViewSelect?: (rect: SelectionRect) => void;
-  // Check of een cel selecteerbaar is in view-mode (alleen bunker-cellen)
-  canViewSelect?: (col: number, row: number) => boolean;
+  // Check of een cel selecteerbaar is in view-mode.
+  // Return false → blokkeer rubber-band (gebruiker pant in plaats daarvan).
+  // Return true → start normale per-cel rubber-band (bunker/custom).
+  // Return '2x2' → start rubber-band die SNAPT naar 2×2 zak-grid (zakken).
+  canViewSelect?: (col: number, row: number) => boolean | '2x2';
   // Wordt aangeroepen wanneer de gebruiker de achtergrond-afbeelding heeft versleept.
   // Krijgt de nieuwe linkerboven-positie in canvas-coordinaten.
   onBackgroundMoved?: (x: number, y: number, autoCentered: boolean) => void;
@@ -53,6 +57,8 @@ export class YardRenderer {
   private opts: RendererOptions;
   private cellShapes = new Map<string, Konva.Rect>();
   private cellLabels = new Map<string, Konva.Text>();
+  private zakMatLabels = new Map<string, Konva.Text>();
+  private zakGroupLabels = new Map<string, Konva.Text>();
   private areaLabels = new Map<number | string, Konva.Text>();
   private areaOutlines = new Map<number | string, Konva.Group>();
   // Per-zak (anchor) outline-lijnen; alleen de zijden die niet tegen een
@@ -87,6 +93,21 @@ export class YardRenderer {
   private shiftAxis: 'h' | 'v' | null = null;
 
   paintMode: 'none' | 'paint' | 'select' = 'none';
+
+  // Traylijn-state: bepaalt hoe S/T-codes op zakken worden getoond ("Augustine S01").
+  // Wordt door YardCanvas geconfigureerd: tlStateGetter wordt op elke
+  // renderCells aangeroepen zodat het ALTIJD de actuele store-state leest
+  // (geen gecachte snapshot die kan verouderen door HMR of onverwachte
+  // subscribe-volgorde).
+  tlStateGetter: () => TraylijnState = () => ({ tl1: '', tl2: '' });
+  // Compat alias — externe code mag nog .tlState lezen, intern gebruiken we
+  // altijd de getter.
+  get tlState(): TraylijnState { return this.tlStateGetter(); }
+  set tlState(s: TraylijnState) { this.tlStateGetter = () => s; }
+
+  // Tijdens een view-rubber-band: of het rect snapt naar 2×2 zak-blokken.
+  // Wordt aan begin van de selectie gezet op basis van canViewSelect-result.
+  private selectionSnap2x2 = false;
 
   // Selectie state
   private selection: SelectionRect | null = null;
@@ -648,6 +669,65 @@ export class YardRenderer {
       if (orient === 'h' ? c.row < cur.row : c.col < cur.col) zakExtremes.set(groupKey, key);
     }
 
+    // ── Pre-pass: bouw verticale (of horizontale) merge-groepen ─────────
+    // Aansluitende zak-anchors in dezelfde rij met dezelfde zakCode +
+    // zakMaterial worden samengevoegd tot één visuele groep. De materiaal-
+    // naam wordt dan EENMAAL geroteerd over de hele groep getekend, i.p.v.
+    // boven elke individuele zak. Solo-anchors blijven hun eigen mat-label
+    // krijgen.
+    const cellToGroup = new Map<string, string>();          // cellKey → groupKey
+    const groupInfo = new Map<string, {
+      members: Array<{ key: string; col: number; row: number }>;
+      orient: 'h' | 'v';
+      matText: string;       // gestripte materiaal-naam
+    }>();
+    {
+      // Buckets per (orient, rij, code, materiaal)
+      const buckets = new Map<string, CellRow[]>();
+      for (const [, c] of cells) {
+        if (c.cell_type !== 'zak' || !c.meta?.zakAnchor) continue;
+        if (!c.meta?.zakCode) continue;
+        const orient = c.meta?.zakOrient === 'v' ? 'v' : 'h';
+        const rij = String(c.meta?.zakRij ?? c.meta?.zakNum ?? '');
+        const code = String(c.meta.zakCode);
+        const mat = String(c.meta?.zakMaterial ?? '');
+        // Geen merge zonder materiaal-prefix (S29, Granulaat, custom): die
+        // tonen al hun volledige naam in het code-label, dus merging zou
+        // alleen verwarring geven.
+        if (!mat) continue;
+        const bk = `${orient}|${rij}|${code}|${mat}`;
+        if (!buckets.has(bk)) buckets.set(bk, []);
+        buckets.get(bk)!.push(c);
+      }
+      for (const [bk, list] of buckets) {
+        const orient = bk[0] as 'h' | 'v';
+        list.sort((a, b) => (orient === 'h' ? a.row - b.row : a.col - b.col));
+        let runStart = 0;
+        for (let i = 1; i <= list.length; i++) {
+          const adjacent = i < list.length && (
+            orient === 'h'
+              ? list[i].row === list[i - 1].row + 2 && list[i].col === list[i - 1].col
+              : list[i].col === list[i - 1].col + 2 && list[i].row === list[i - 1].row
+          );
+          if (!adjacent) {
+            if (i - runStart >= 2) {
+              const members = list.slice(runStart, i);
+              const head = members[0];
+              const groupKey = `${bk}|${head.col},${head.row}|${members.length}`;
+              const mat = String(head.meta?.zakMaterial ?? '');
+              groupInfo.set(groupKey, {
+                members: members.map((m) => ({ key: `${m.col},${m.row}`, col: m.col, row: m.row })),
+                orient,
+                matText: stripMaterialTLSuffix(mat),
+              });
+              for (const m of members) cellToGroup.set(`${m.col},${m.row}`, groupKey);
+            }
+            runStart = i;
+          }
+        }
+      }
+    }
+
     // Verwijder shapes voor cellen die niet meer bestaan
     for (const [key, shape] of this.cellShapes) {
       if (!cells.has(key)) {
@@ -655,6 +735,8 @@ export class YardRenderer {
         this.cellShapes.delete(key);
         const lbl = this.cellLabels.get(key);
         if (lbl) { lbl.destroy(); this.cellLabels.delete(key); }
+        const mat = this.zakMatLabels.get(key);
+        if (mat) { mat.destroy(); this.zakMatLabels.delete(key); }
       }
     }
 
@@ -674,11 +756,18 @@ export class YardRenderer {
       }
 
       const area = cell.area_id != null ? areas.get(cell.area_id) : undefined;
+      // Zak-anchor met zakCode krijgt een per-code tint (subtiele variaties
+      // binnen S/T/Granulaat-families). S01 ≠ S17 ≠ S03, etc. — zo blijft
+      // het visueel onderscheidbaar binnen één rij.
+      let zakOverrideColor: string | undefined;
+      if (cell.cell_type === 'zak' && cell.meta?.zakAnchor && cell.meta?.zakCode) {
+        zakOverrideColor = colorForZakCode(String(cell.meta.zakCode));
+      }
       const colors = colorFor(
         cell.cell_type,
         cell.label,
         area?.material_name || undefined,
-        area?.color || undefined
+        zakOverrideColor || area?.color || undefined,
       );
       const isZakAnchor = cell.cell_type === 'zak' && !!cell.meta?.zakAnchor;
       // Bunker/custom-cellen: rects 0.6 px overlap zodat er geen subpixel-naden
@@ -754,30 +843,176 @@ export class YardRenderer {
       }
 
       // Label rendering — drie cases:
-      //  1) Zak-anchor met zakNum (auto-num) → label IN de 2×2 zak (alleen extreme van groep)
+      //  1) Zak-anchor met zakCode → resolved materiaal-label IN de 2×2 zak
+      //     (alle anchors tonen hun eigen materiaal; bij gelijk materiaal zou
+      //     verticale merging een vervolgstap zijn — voor nu per anchor).
+      //     Anchors zonder zakCode vallen terug op het rij-nummer (alleen de
+      //     extreme van een Rij-groep).
       //  2) Handmatige zak-num cel met label → label kan over 2 cellen spannen
       //  3) Anders → wis label
-      if (cell.cell_type === 'zak' && cell.meta?.zakAnchor && cell.meta?.zakNum) {
-        const orient = cell.meta?.zakOrient || 'h';
-        const groupKey = orient === 'h' ? `h:${cell.col}:${cell.meta.zakNum}` : `v:${cell.row}:${cell.meta.zakNum}`;
-        const isExtreme = zakExtremes.get(groupKey) === key;
-        if (isExtreme) {
+      if (cell.cell_type === 'zak' && cell.meta?.zakAnchor) {
+        const zakCode = cell.meta?.zakCode ? String(cell.meta.zakCode) : '';
+        // Onderscheid:
+        //  - 'zakMaterial' KEY aanwezig in meta → al bevroren, gebruik die
+        //    waarde (kan ook een lege string zijn voor codes zonder TL-koppeling)
+        //  - key niet aanwezig → legacy data; backfill-migratie zal het
+        //    binnenkort stempelen. Tot dan: vallen we terug op de huidige
+        //    TL-state om iets zinnigs te tonen.
+        const meta: any = cell.meta || {};
+        const isStamped = 'zakMaterial' in meta;
+        const stamped = isStamped && meta.zakMaterial ? String(meta.zakMaterial) : '';
+
+        let matText = '';
+        let codeText = '';
+        if (zakCode) {
+          codeText = zakCode;
+          if (isStamped) {
+            // Bevroren — toon stamped als die niet leeg is, anders niets.
+            // Strip de redundante " S" / " T" suffix want die zit al in de code.
+            matText = stripMaterialTLSuffix(stamped);
+          } else {
+            // Tijdelijke fallback voor data van vóór de zakMaterial-fix.
+            const resolvedLabel = resolveZakLabel(zakCode, this.tlState);
+            if (resolvedLabel && resolvedLabel !== zakCode) {
+              const lastSpace = resolvedLabel.lastIndexOf(' ');
+              if (lastSpace > 0) {
+                matText = stripMaterialTLSuffix(resolvedLabel.slice(0, lastSpace));
+              }
+            }
+          }
+        } else if (cell.meta?.zakNum) {
+          // Geen materiaal toegewezen → toon rij-num (alleen extreme van groep
+          // zoals voorheen, om herhaling binnen een rij te voorkomen).
+          const orient = cell.meta?.zakOrient || 'h';
+          const groupKey = orient === 'h'
+            ? `h:${cell.col}:${cell.meta.zakNum}`
+            : `v:${cell.row}:${cell.meta.zakNum}`;
+          const isExtreme = zakExtremes.get(groupKey) === key;
+          if (isExtreme) {
+            codeText = String(cell.meta.zakNum);
+          }
+        }
+
+        // Materiaal-label (bovenste 1/3 van het 2×2 zak-blok). FontSize
+        // wordt met Konva's eigen getTextWidth gemeten en daarna teruggeschroefd
+        // tot de tekst echt comfortabel past — zo geen krap-randje of
+        // afgekapte tekst meer voor lange namen ("Augustine", "DVRMI050").
+        // Skip als deze anchor in een verticale merge-group zit (groepslabel
+        // komt apart).
+        const inGroup = cellToGroup.has(key);
+        if (matText && !inGroup) {
+          // Mat-label krijgt de bovenste helft van het 2×2 (24px hoog) en
+          // mag op woordgrens wrappen — zo passen multi-word TL-namen
+          // ("diverse S01/S02") op 2 regels in plaats van afgekapt te worden.
+          const matH = CELL;                         // 24px
+          const targetW = 2 * CELL - 6;              // 3px padding elke kant
+          let mat = this.zakMatLabels.get(key);
+          if (!mat) {
+            mat = new Konva.Text({
+              x: cell.col * CELL,
+              y: cell.row * CELL + 1,
+              width: 2 * CELL,
+              height: matH,
+              align: 'center',
+              verticalAlign: 'middle',
+              fontSize: 10,
+              fontStyle: 'bold',
+              fill: 'rgba(40,55,71,0.95)',
+              listening: false,
+              lineHeight: 1.0,
+              wrap: 'word',
+              ellipsis: true,
+            });
+            this.labelLayer.add(mat);
+            this.zakMatLabels.set(key, mat);
+          } else {
+            mat.height(matH);
+            mat.wrap('word');
+            mat.lineHeight(1.0);
+          }
+          mat.text(matText);
+          mat.fontSize(10);
+          const widthAt10 = mat.getTextWidth();
+          let matFontSize = 10;
+          if (widthAt10 > targetW) {
+            matFontSize = Math.max(5, (10 * targetW / widthAt10) * 0.9);
+            mat.fontSize(matFontSize);
+          }
+          // Verticale fit: als het op 2 regels uitkomt mag dat niet boven de
+          // matH uit (~24px). Bij 2 regels op lineHeight 1.0 is max fontSize
+          // matH/2 = 12. Met 1 regel mag het tot matH-2.
+          const wrapped = matFontSize !== 10 || widthAt10 > targetW;
+          if (wrapped) {
+            const maxFs2Lines = (matH - 2) / 2;
+            if (matFontSize > maxFs2Lines) {
+              matFontSize = maxFs2Lines;
+              mat.fontSize(matFontSize);
+            }
+          }
+        } else {
+          const mat = this.zakMatLabels.get(key);
+          if (mat) { mat.destroy(); this.zakMatLabels.delete(key); }
+        }
+
+        // Code-label. Met materiaal-label erboven: positie in onderste 2/3 +
+        // grotere font. Zonder materiaal: gecentreerd in het hele 2×2 blok.
+        // Bij in-group anchors: code-label schuift rechts op (16px strip) zodat
+        // het geroteerde groep-mat-label aan de linkerkant past.
+        if (codeText) {
+          const hasMat = !!matText;
+          // Mat-label neemt nu de bovenste helft van het 2×2 (CELL hoog),
+          // code-label de onderste helft. Zonder mat: code vult het hele blok.
+          const codeY = hasMat ? cell.row * CELL + CELL : cell.row * CELL;
+          const codeH = hasMat ? CELL : 2 * CELL;
+          const codeFontSize = hasMat ? 14 : 16;
+          const stripW = inGroup ? 16 : 0;
+          const codeX = cell.col * CELL + stripW;
+          const codeW = 2 * CELL - stripW;
+          // zakCode aanwezig → donkere fill (echt materiaal-label).
+          // Geen zakCode → fallback (bv. rij-num) → lichtere fill.
+          const codeFill = zakCode ? '#1a1a2e' : 'rgba(40,55,71,0.85)';
           let txt = this.cellLabels.get(key);
           if (!txt) {
             txt = new Konva.Text({
-              x: cell.col * CELL, y: cell.row * CELL,
-              width: 2 * CELL, height: 2 * CELL,
-              align: 'center', verticalAlign: 'middle',
-              fontSize: 16, fontStyle: 'bold',
-              fill: 'rgba(40,55,71,0.85)', listening: false,
+              x: codeX,
+              y: codeY,
+              width: codeW,
+              height: codeH,
+              align: 'center',
+              verticalAlign: 'middle',
+              fontSize: codeFontSize,
+              fontStyle: 'bold',
+              fill: codeFill,
+              listening: false,
+              lineHeight: 1.05,
+              // 'word' i.p.v. 'none' zodat "Granulaat Mix" / "Granulaat Naturel"
+              // op twee regels kunnen zonder dat we tot fontSize 5 hoeven.
+              wrap: 'word',
+              ellipsis: true,
             });
             this.labelLayer.add(txt);
             this.cellLabels.set(key, txt);
           } else {
-            txt.width(2 * CELL); txt.height(2 * CELL);
-            txt.fontSize(16); txt.fill('rgba(40,55,71,0.85)');
+            txt.x(codeX);
+            txt.y(codeY);
+            txt.width(codeW);
+            txt.height(codeH);
+            txt.fill(codeFill);
+            txt.lineHeight(1.05);
+            txt.wrap('word');
+            txt.ellipsis(true);
           }
-          txt.text(String(cell.meta.zakNum));
+          txt.text(codeText);
+          // FontSize fit: meet de tekstbreedte (langste regel ná word-wrap) op
+          // default codeFontSize en schaal terug als die niet past. Minimum 5,
+          // ×0.92 marge zodat het comfortabel staat.
+          const codeTargetW = codeW - 4;
+          txt.fontSize(codeFontSize);
+          const codeWidthAtMax = txt.getTextWidth();
+          if (codeWidthAtMax > codeTargetW) {
+            const fitFs = Math.max(5, (codeFontSize * codeTargetW / codeWidthAtMax) * 0.92);
+            txt.fontSize(fitFs);
+          }
         } else {
           const txt = this.cellLabels.get(key);
           if (txt) { txt.destroy(); this.cellLabels.delete(key); }
@@ -811,6 +1046,80 @@ export class YardRenderer {
       } else {
         const txt = this.cellLabels.get(key);
         if (txt) { txt.destroy(); this.cellLabels.delete(key); }
+      }
+    }
+
+    // ── Post-pass: render geroteerde mat-labels voor merge-groepen ───────
+    // Eén "Attewimi" verticaal over de hele groep, in een 16px brede strip
+    // aan de linkerkant van de zak-kolom (orient='h') of bovenkant (orient='v').
+    // Cleanup: verwijder oude group-labels die niet meer in groupInfo zitten.
+    for (const [gk, lbl] of this.zakGroupLabels) {
+      if (!groupInfo.has(gk)) { lbl.destroy(); this.zakGroupLabels.delete(gk); }
+    }
+    for (const [groupKey, info] of groupInfo) {
+      if (!info.matText) continue;
+      // Bounding box van de groep
+      let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+      for (const m of info.members) {
+        if (m.col < minC) minC = m.col;
+        if (m.col > maxC) maxC = m.col;
+        if (m.row < minR) minR = m.row;
+        if (m.row > maxR) maxR = m.row;
+      }
+      // Anchors zijn 2×2; bounding box loopt tot maxC+2 / maxR+2
+      const groupX = minC * CELL;
+      const groupY = minR * CELL;
+      const groupW = (maxC - minC + 2) * CELL;
+      const groupH = (maxR - minR + 2) * CELL;
+      const isVerticalGroup = info.orient === 'h';
+      // Schaal fontSize zodat de hele tekst past langs de lange-as van de groep.
+      const longAxis = isVerticalGroup ? groupH : groupW;
+      const charW = 0.6;
+      const fitFs = info.matText.length > 0 ? (longAxis - 6) / (info.matText.length * charW) : 14;
+      const matFontSize = Math.max(8, Math.min(16, fitFs));
+
+      let lbl = this.zakGroupLabels.get(groupKey);
+      if (!lbl) {
+        lbl = new Konva.Text({
+          align: 'center',
+          verticalAlign: 'middle',
+          fontStyle: 'bold',
+          fill: 'rgba(40,55,71,0.95)',
+          listening: false,
+          lineHeight: 1.0,
+          wrap: 'none',
+          ellipsis: true,
+        });
+        this.labelLayer.add(lbl);
+        this.zakGroupLabels.set(groupKey, lbl);
+      }
+      lbl.text(info.matText);
+      lbl.fontSize(matFontSize);
+
+      if (isVerticalGroup) {
+        // Verticale groep: roteer -90° (CCW) en plaats links in de kolom.
+        // 16px strip aan de linkerkant; rotated text spans de hoogte.
+        const stripW = 16;
+        // Voor rotation=-90 om (0,0): origineel (px, py) → (py, -px) (CCW)
+        // We willen tekst van bottom→top te lezen en horizontaal gecentreerd
+        // in de strip. Plaats het registratiepunt zodanig dat het rotated
+        // bounding box past in (groupX, groupY)..(groupX+stripW, groupY+groupH).
+        lbl.width(longAxis - 6);     // pre-rotation: lange as wordt visueel verticaal
+        lbl.height(stripW);          // pre-rotation: smalle as wordt visueel horizontaal
+        lbl.rotation(-90);
+        // Na -90° rotatie rond (0,0): bottom-left van het bounding-box landt op (x, y).
+        // We willen dat punt op (groupX, groupY + groupH - 3) — bottom-left van strip.
+        lbl.x(groupX);
+        lbl.y(groupY + groupH - 3);
+      } else {
+        // Horizontale groep (orient='v'): geen rotatie nodig, tekst horizontaal
+        // in een 16px strip aan de bovenkant van de groep.
+        const stripH = 16;
+        lbl.width(longAxis - 6);
+        lbl.height(stripH);
+        lbl.rotation(0);
+        lbl.x(groupX + 3);
+        lbl.y(groupY);
       }
     }
 
@@ -1368,12 +1677,29 @@ export class YardRenderer {
         // alleen als de startcel selecteerbaar is (bunker-cel).
         if (this.paintMode === 'none') {
           const startCell = this.getCellAtPointer();
-          if (startCell && (!this.opts.canViewSelect || this.opts.canViewSelect(startCell.col, startCell.row))) {
+          const canSel = startCell
+            ? (this.opts.canViewSelect ? this.opts.canViewSelect(startCell.col, startCell.row) : true)
+            : false;
+          if (startCell && canSel) {
             this.isSelecting = true;
-            this.selectionStart = startCell;
-            const x = startCell.col * CELL;
-            const y = startCell.row * CELL;
-            this.selectionRect.position({ x, y }).size({ width: CELL, height: CELL }).visible(true);
+            this.selectionSnap2x2 = canSel === '2x2';
+            // Bij 2×2 snap: start de selectie altijd op de anchor van het 2×2
+            // blok (even col/row), zodat ook een klik op een niet-anchor cel
+            // van het zelfde blok consistent gedrag geeft.
+            if (this.selectionSnap2x2) {
+              this.selectionStart = {
+                col: Math.floor(startCell.col / 2) * 2,
+                row: Math.floor(startCell.row / 2) * 2,
+              };
+            } else {
+              this.selectionStart = startCell;
+            }
+            const sc = this.selectionStart.col, sr = this.selectionStart.row;
+            const x = sc * CELL;
+            const y = sr * CELL;
+            const w = this.selectionSnap2x2 ? 2 * CELL : CELL;
+            const h = this.selectionSnap2x2 ? 2 * CELL : CELL;
+            this.selectionRect.position({ x, y }).size({ width: w, height: h }).visible(true);
             this.uiLayer.batchDraw();
             // Niet pannen als we selecteren
             this.isPanning = false;
@@ -1495,10 +1821,19 @@ export class YardRenderer {
       } else if (this.isSelecting && this.selectionStart) {
         const cell = this.getCellAtPointer();
         if (cell) {
-          const x1 = Math.min(this.selectionStart.col, cell.col) * CELL;
-          const y1 = Math.min(this.selectionStart.row, cell.row) * CELL;
-          const x2 = (Math.max(this.selectionStart.col, cell.col) + 1) * CELL;
-          const y2 = (Math.max(this.selectionStart.row, cell.row) + 1) * CELL;
+          let c1 = Math.min(this.selectionStart.col, cell.col);
+          let r1 = Math.min(this.selectionStart.row, cell.row);
+          let c2 = Math.max(this.selectionStart.col, cell.col);
+          let r2 = Math.max(this.selectionStart.row, cell.row);
+          if (this.selectionSnap2x2) {
+            // Snap naar 2×2 anchor-grid (anchors staan op even col/row).
+            c1 = Math.floor(c1 / 2) * 2;
+            r1 = Math.floor(r1 / 2) * 2;
+            c2 = Math.floor(c2 / 2) * 2 + 1;
+            r2 = Math.floor(r2 / 2) * 2 + 1;
+          }
+          const x1 = c1 * CELL, y1 = r1 * CELL;
+          const x2 = (c2 + 1) * CELL, y2 = (r2 + 1) * CELL;
           this.selectionRect.position({ x: x1, y: y1 }).size({ width: x2 - x1, height: y2 - y1 });
           this.uiLayer.batchDraw();
         }
@@ -1614,10 +1949,20 @@ export class YardRenderer {
       // ── Rubber-band selectie afronden ──
       if (this.isSelecting && this.selectionStart) {
         const end = this.getCellAtPointer() || this.selectionStart;
-        const rect: SelectionRect = this.normalizeRect({
+        let rect: SelectionRect = this.normalizeRect({
           col1: this.selectionStart.col, row1: this.selectionStart.row,
           col2: end.col, row2: end.row,
         });
+        if (this.selectionSnap2x2) {
+          // Snap definitief naar 2×2 grid bij commit.
+          rect = {
+            col1: Math.floor(rect.col1 / 2) * 2,
+            row1: Math.floor(rect.row1 / 2) * 2,
+            col2: Math.floor(rect.col2 / 2) * 2 + 1,
+            row2: Math.floor(rect.row2 / 2) * 2 + 1,
+          };
+        }
+        this.selectionSnap2x2 = false;
         this.isSelecting = false;
         this.selectionStart = null;
         this.selectionRect.visible(false);

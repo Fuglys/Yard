@@ -19,6 +19,31 @@ export const MATERIAL_COLORS: Record<string, string> = {
   LUMPS: '#9cc0d4', Quarantine: '#a888b5',
 };
 
+// Per-zak-code subtiele tinten — elke S/T/Granulaat-code krijgt een eigen
+// schakering binnen z'n familie zodat S01 vs S17 niet identiek lijken.
+// Lichte HSL-variaties: S* in blauw-spectrum, T* in rood, Granulaat in khaki.
+export const ZAK_CODE_COLORS: Record<string, string> = {
+  S01: '#bcd6e8',  // licht-blauw 1
+  S02: '#a8c8e0',  // licht-blauw 2
+  S03: '#94bcd9',  // licht-blauw 3
+  S17: '#80b0d2',  // licht-blauw 4 (donkerder)
+  S29:  '#bcc4cc', // grijs-blauw 1 (los, geen TL)
+  S29A: '#cdd5dc', // grijs-blauw 2 (los, geen TL)
+  T01: '#e8c0c0',  // licht-rood 1
+  T02: '#dba8a8',  // licht-rood 2
+  T03: '#d49696',  // licht-rood 3
+  T17: '#cd8484',  // licht-rood 4 (donkerder)
+  'Granulaat Mix':     '#c8b88a',  // khaki, donkerder
+  'Granulaat Naturel': '#e0d5a0',  // khaki, lichter
+};
+
+export function colorForZakCode(code: string | null | undefined): string | undefined {
+  if (!code) return undefined;
+  if (ZAK_CODE_COLORS[code]) return ZAK_CODE_COLORS[code];
+  // Custom-naam (vrij ingevuld) → genereer een pasteltint op basis van de naam.
+  return hashColor(code);
+}
+
 export function colorFor(cellType: string, label?: string, materialName?: string, customColor?: string): { fill: string; stroke: string; text: string } {
   if (customColor) {
     return { fill: customColor, stroke: shade(customColor, -15), text: contrastText(customColor) };

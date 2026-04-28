@@ -8,10 +8,12 @@
   import Toast from './lib/components/Toast.svelte';
   import PlaceAssignChip from './lib/components/PlaceAssignChip.svelte';
   import BulkReassignDrawer from './lib/components/BulkReassignDrawer.svelte';
+  import ZakMaterialPopover from './lib/components/ZakMaterialPopover.svelte';
+  import ZakMultiPopover from './lib/components/ZakMultiPopover.svelte';
 
   import { startSync, schedulePush } from './lib/sync/engine';
   import { loadMaterials } from './lib/stores/materials';
-  import { authStore, modeStore, editPanelOpen, inspectorAreaId, pendingSubAreaId } from './lib/stores/ui';
+  import { authStore, modeStore, editPanelOpen, inspectorAreaId, pendingSubAreaId, traylijnStore, materialForZakCode } from './lib/stores/ui';
   import { cellsStore, deleteCells, areasStore, upsertArea, upsertCells, nextTempId, registerIdRemapHook } from './lib/stores/state';
   import { useStore } from './lib/useStore.svelte';
 
@@ -130,6 +132,55 @@
   }
   if (typeof window !== 'undefined') (window as any).__yardMigrateContainerAfval = migrateContainerAfvalAreas;
 
+  // Backfill: oude zak-anchors hebben wel een zakCode maar nog geen
+  // zakMaterial — die moeten alsnog "bevroren" worden zodat het label niet
+  // meeverandert wanneer de gebruiker later TL1/TL2 wijzigt. We gebruiken
+  // de HUIDIGE TL-state als snapshot. Idempotent: anchors die al een
+  // zakMaterial hebben worden overgeslagen.
+  async function backfillZakMaterial() {
+    const tl = traylijnStore.get();
+    const cellsMap = cellsStore.get();
+    const ts = Date.now();
+    const updates: any[] = [];
+    let skipped = 0;
+    for (const c of cellsMap.values()) {
+      if (c.cell_type !== 'zak' || !c.meta?.zakAnchor) continue;
+      const code = c.meta?.zakCode ? String(c.meta.zakCode) : '';
+      if (!code) continue;
+      if (c.meta?.zakMaterial != null) { skipped++; continue; }
+      const mat = materialForZakCode(code, tl);
+      if (!mat) {
+        // Code zonder TL-koppeling (S29, Granulaat, custom): geen materiaal
+        // om te bevriezen. Sla expliciet null op zodat de fallback in
+        // YardRenderer NIET meer aanslaat (anders blijft hij elke render
+        // opnieuw resolveZakLabel proberen).
+        updates.push({
+          col: c.col, row: c.row,
+          cell_type: c.cell_type,
+          area_id: c.area_id ?? null,
+          label: c.label || '',
+          meta: { ...(c.meta || {}), zakMaterial: '' },
+          updated_at: ts,
+        });
+        continue;
+      }
+      updates.push({
+        col: c.col, row: c.row,
+        cell_type: c.cell_type,
+        area_id: c.area_id ?? null,
+        label: c.label || '',
+        meta: { ...(c.meta || {}), zakMaterial: mat },
+        updated_at: ts,
+      });
+    }
+    if (updates.length) {
+      console.log(`[migration] zakMaterial backfill: ${updates.length} bevroren (TL1=${tl.tl1}, TL2=${tl.tl2}), ${skipped} overgeslagen`);
+      await upsertCells(updates);
+      schedulePush();
+    }
+  }
+  if (typeof window !== 'undefined') (window as any).__yardBackfillZakMaterial = backfillZakMaterial;
+
   // Wis alle losse zak-num cellen (was auto-gegenereerd of orphaned)
   async function cleanupOrphanZakNums() {
     const orphans: Array<{ col: number; row: number }> = [];
@@ -189,6 +240,7 @@
       setTimeout(() => {
         cleanupOrphanZakNums();
         migrateContainerAfvalAreas();
+        backfillZakMaterial();
       }, 1500);
     });
     loadMaterials();
@@ -232,6 +284,8 @@
 <AreaInspector />
 <PlaceAssignChip />
 <BulkReassignDrawer />
+<ZakMaterialPopover />
+<ZakMultiPopover />
 <LoginModal bind:open={loginOpen} />
 <Toast />
 
