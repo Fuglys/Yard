@@ -23,6 +23,16 @@
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
       }
+      // Wis IndexedDB zodat de app een verse state van de server haalt
+      const dbs = await indexedDB.databases();
+      await Promise.all(dbs.map((db) => {
+        if (db.name) return new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase(db.name!);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        });
+      }));
     } catch (e) {
       console.warn('Cache cleanup error:', e);
     }

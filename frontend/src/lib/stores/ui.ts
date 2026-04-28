@@ -47,6 +47,32 @@ export function toast(message: string) {
 
 export const editPanelOpen = createStore<boolean>(false);
 export const inspectorAreaId = createStore<number | string | null>(null);
+// Houdt bij welke sub-area net is aangemaakt door een view-selectie.
+// Bij annuleren (sluiten zonder opslaan) wordt deze teruggedraaid.
+export const pendingSubAreaId = createStore<number | string | null>(null);
+
+// Pending selectie: cellen die geselecteerd zijn in overzicht maar nog niet opgeslagen.
+// De inspector opent in "nieuw" of "extend" modus. Pas bij opslaan wordt de
+// sub-area aangemaakt of uitgebreid.
+export interface PendingSelection {
+  cells: Array<{ col: number; row: number; cell_type: string; area_id: number | string | null }>;
+  parentColor: string | null;
+  // Wanneer non-null: deze selectie sluit aan op (of bevat) een bestaande
+  // sub-area met materiaal. Bij Opslaan voegen we de cellen aan die area toe
+  // i.p.v. een nieuwe area aan te maken. Het materiaal/qty/datum-formulier
+  // wordt vooraf gevuld met de waarden van die area.
+  mergeIntoAreaId: number | string | null;
+  mergeIntoMaterial: string | null;
+  mergeIntoQuantity: number | null;
+  mergeIntoDate: string | null;
+}
+export const pendingSelectionStore = createStore<PendingSelection | null>(null);
+
+// Sub-selectie: cellen die binnen een bestaande sub-area zijn geselecteerd
+// (rubber-band volledig binnen die area). Gebruikt om deelverwijderen mogelijk
+// te maken: knop "Verwijder geselecteerde cellen" in de inspector geeft alleen
+// deze cellen terug aan de parent bunker, zonder de hele area te verwijderen.
+export const subSelectionCellsStore = createStore<Array<{ col: number; row: number }> | null>(null);
 
 // Lock paint-richting (handig op tablet zonder Shift-toets)
 export const lineLockStore = createStore<boolean>(false);

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { YardRenderer, type SelectionRect } from '../canvas/YardRenderer';
   import { areasStore, cellsStore, upsertArea, upsertCells, deleteCells, deleteArea, nextTempId } from '../stores/state';
-  import { paintToolStore, modeStore, inspectorAreaId, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore } from '../stores/ui';
+  import { paintToolStore, modeStore, inspectorAreaId, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore } from '../stores/ui';
   import { schedulePush } from '../sync/engine';
   import { history } from '../stores/history';
   import type { CellRow, AreaRow } from '../db/dexie';
@@ -162,7 +162,7 @@
       // Zonder buur valt-ie terug op het nummer dat de gebruiker heeft ingevuld
       // in zakRijNumStore. (Dus géén auto-increment / géén localStorage counter.)
       const orientation = zakOrientationStore.get();
-      const userRijNum = Math.max(1, Math.floor(zakRijNumStore.get()) || 1);
+      const userRijNum = Math.floor(zakRijNumStore.get()) || 0;  // 0 = geen nummer
       const positions = new Map<string, { col: number; row: number }>();
       for (const c of coords) {
         const sc = Math.floor(c.col / 2) * 2;
@@ -175,52 +175,51 @@
 
       const cellsMap = cellsStore.get();
       const anchors = new Map<string, CellRow>();
-      // Map zakNum/zakRij -> bestaand area_id (zodat we niet dubbele areas maken)
-      const rijToAreaId = new Map<string, number | string>();
       for (const c of cellsMap.values()) {
         if (c.cell_type === 'zak' && c.meta?.zakAnchor) {
           anchors.set(`${c.col},${c.row}`, c);
-          const rij = String(c.meta?.zakRij ?? c.meta?.zakNum ?? '');
-          if (rij && c.area_id != null && !rijToAreaId.has(rij)) {
-            rijToAreaId.set(rij, c.area_id);
-          }
         }
       }
 
       const allUpserts: Array<Omit<CellRow, 'key'>> = [];
-      // Track de meest recent geplaatste area-id voor de inline place+assign chip
       let lastNewAreaId: number | string | null = null;
+      // Track welke rij-nummers al een area hebben in DEZE tekensessie
+      const rijToAreaId = new Map<string, number | string>();
 
       for (const p of sortedPositions) {
         if (anchors.has(`${p.col},${p.row}`)) continue;
 
-        // Geen auto-inheritance: het rij-nummer dat de gebruiker heeft
-        // ingevuld wint altijd. Wil je een rij doortrekken? Type dat
-        // rij-nummer in en plaats — zakken sluiten dan aan op de bestaande
-        // area met datzelfde nummer (zie rijToAreaId hieronder).
         const zakNum: number = userRijNum;
-        const rijKey = String(zakNum);
+        const rijKey = zakNum > 0 ? String(zakNum) : '';
 
-        // Per-rij area: hergebruik bestaande, of maak nieuwe
-        let areaId: number | string | null;
-        if (rijToAreaId.has(rijKey)) {
-          areaId = rijToAreaId.get(rijKey)!;
-        } else {
+        // Zoek een aangrenzende zak-anchor met hetzelfde rij-nummer
+        // (alleen directe buren, niet de hele yard)
+        let areaId: number | string | null = (rijKey && rijToAreaId.has(rijKey)) ? rijToAreaId.get(rijKey)! : null;
+        if (!areaId && rijKey) {
+          for (const [dc, dr] of [[-2,0],[2,0],[0,-2],[0,2]]) {
+            const nb = anchors.get(`${p.col+dc},${p.row+dr}`);
+            if (nb && String(nb.meta?.zakRij ?? nb.meta?.zakNum ?? '') === rijKey && nb.area_id != null) {
+              areaId = nb.area_id;
+              break;
+            }
+          }
+        }
+        if (!areaId) {
           const newArea: AreaRow = {
             id: nextTempId(),
-            name: `Rij ${zakNum}`,
+            name: rijKey ? `Rij ${zakNum}` : '',
             area_type: 'zak',
             color: '#0E7490',
-            metadata: { zakRij: rijKey },
+            metadata: rijKey ? { zakRij: rijKey } : {},
             updated_at: ts,
           };
           await upsertArea(newArea);
-          rijToAreaId.set(rijKey, newArea.id);
           areaId = newArea.id;
           lastNewAreaId = newArea.id;
         }
+        if (rijKey) rijToAreaId.set(rijKey, areaId);
 
-        // Plaats 4 zak-cellen — alleen anchor draagt zakNum
+        // Plaats 4 zak-cellen — alleen anchor draagt zakNum (als er een nummer is)
         for (let dr = 0; dr < 2; dr++) {
           for (let dc = 0; dc < 2; dc++) {
             allUpserts.push({
@@ -230,8 +229,7 @@
               label: '',
               meta: {
                 zakAnchor: dc === 0 && dr === 0,
-                zakNum,
-                zakRij: rijKey,
+                ...(zakNum > 0 ? { zakNum, zakRij: rijKey } : {}),
                 zakOrient: orientation,
               },
               updated_at: ts,
@@ -243,7 +241,7 @@
         anchors.set(`${p.col},${p.row}`, {
           key: `${p.col},${p.row}`, col: p.col, row: p.row,
           cell_type: 'zak', area_id: areaId, label: '',
-          meta: { zakAnchor: true, zakNum, zakRij: rijKey, zakOrient: orientation }, updated_at: ts,
+          meta: { zakAnchor: true, ...(zakNum > 0 ? { zakNum, zakRij: rijKey } : {}), zakOrient: orientation }, updated_at: ts,
         });
       }
 
@@ -263,7 +261,9 @@
       const label = tool.label || '';
       const color = (tool as any).color || (tool.type === 'bunker' ? '#e67e22' : '#5dade2');
 
-      let target = label ? findAdjacentArea(coords, areaType, label) : null;
+      // Zoek altijd een aangrenzende area van hetzelfde type — ook zonder label.
+      // Bij lege label matchen we op areaType alleen (naam '' === '').
+      let target = findAdjacentArea(coords, areaType, label);
       let isNew = false;
 
       if (!target) {
@@ -346,79 +346,170 @@
     }
   }
 
+  // Guard: voorkom dubbele inspector-opens na viewSelect
+  let viewSelectJustFired = false;
+  let lastInspectorOpenTime = 0;
+
+  function openInspector(areaId: number | string, opts?: { keepSubSelection?: boolean }) {
+    lastInspectorOpenTime = Date.now();
+    if (!opts?.keepSubSelection) subSelectionCellsStore.set(null);
+    inspectorAreaId.set(areaId);
+  }
+
   function handleCellClick(col: number, row: number) {
+    if (viewSelectJustFired) {
+      viewSelectJustFired = false;
+      return;
+    }
+    if (inspectorAreaId.get() != null) return;
+    if (Date.now() - lastInspectorOpenTime < 500) return;
+
     const tool = paintToolStore.get();
     if (tool.type === 'pick-area') {
       handlePickArea(col, row);
       return;
     }
-    const cell = cellsStore.get().get(`${col},${row}`);
-    if (cell && cell.area_id != null) {
-      inspectorAreaId.set(cell.area_id);
+    const mode = modeStore.get();
+    const cellsMap = cellsStore.get();
+    const cell = cellsMap.get(`${col},${row}`);
+    if (!cell) return;
+
+    if (mode === 'view') {
+      if (cell.cell_type === 'zak') {
+        handleViewZakSelect(col, row, cell);
+        return;
+      }
+      // Bunker/custom: alleen bestaande sub-areas met materiaal openen via klik.
+      // Nieuwe sub-vlakken worden aangemaakt via rubber-band selectie.
+      if (cell.area_id != null) {
+        const area = areasStore.get().get(cell.area_id);
+        if (area?.material_name) {
+          openInspector(cell.area_id);
+        }
+      }
+      return;
+    }
+
+    // Layout-modus fallback: open inspector voor de bestaande area
+    if (cell.area_id != null) {
+      openInspector(cell.area_id);
+    }
+  }
+
+  // ── Overzicht: individuele bunker-cel selecteren ─────────────────
+  async function handleViewCellSelect(col: number, row: number, cell: CellRow) {
+    console.log('[handleViewCellSelect]', { col, row, area_id: cell.area_id });
+    // Maak altijd een eigen sub-area voor deze cel zodat je er individueel
+    // materiaal aan kunt toewijzen. Als de cel al een eigen area heeft
+    // (1 cel = 1 area), hergebruik die.
+    if (cell.area_id != null) {
+      const cellsMap = cellsStore.get();
+      let count = 0;
+      for (const c of cellsMap.values()) {
+        if (c.area_id === cell.area_id) count++;
+        if (count > 1) break;
+      }
+      if (count === 1) {
+        openInspector(cell.area_id);
+        return;
+      }
+    }
+
+    // Splits deze cel af van de grote area → eigen sub-area
+    const ts = Date.now();
+    const parentArea = cell.area_id != null ? areasStore.get().get(cell.area_id) : null;
+    const newArea: AreaRow = {
+      id: nextTempId(),
+      name: '',
+      area_type: cell.cell_type,
+      color: parentArea?.color || '#9A3412',
+      updated_at: ts,
+    };
+    await upsertArea(newArea);
+    await upsertCells([{
+      col, row,
+      cell_type: cell.cell_type,
+      area_id: newArea.id,
+      label: cell.label || '',
+      meta: cell.meta || {},
+      updated_at: ts,
+    }]);
+    schedulePush();
+    pendingSubAreaId.set(newArea.id);
+    openInspector(newArea.id);
+  }
+
+  // ── Overzicht: zak-blok selecteren ──────────────────────────────
+  // Open gewoon de inspector voor de bestaande zak-area (de rij).
+  // Geen nieuwe sub-area aanmaken — materiaal wordt op de hele rij gezet.
+  async function handleViewZakSelect(col: number, row: number, cell: CellRow) {
+    const cellsMap = cellsStore.get();
+    // Zoek de anchor van dit 2×2 blok
+    let anchorCol = col, anchorRow = row;
+    if (cell.meta?.zakAnchor) {
+      anchorCol = col; anchorRow = row;
+    } else {
+      for (const [dc, dr] of [[-1,0],[0,-1],[-1,-1]]) {
+        const nc = cellsMap.get(`${col+dc},${row+dr}`);
+        if (nc?.cell_type === 'zak' && nc?.meta?.zakAnchor) {
+          anchorCol = col+dc; anchorRow = row+dr; break;
+        }
+      }
+    }
+
+    const anchorCell = cellsMap.get(`${anchorCol},${anchorRow}`);
+    if (anchorCell?.area_id != null) {
+      openInspector(anchorCell.area_id);
     }
   }
 
   // ── Losse-selectie tool ──────────────────────────────────────────
   // Klik op een cel → flood-fill (4-connected) naar alle aangrenzende cellen
-  // van hetzelfde cell_type. Als sommige al in een area zitten, wordt de
-  // grootste daarvan hergebruikt (zodat materiaal-keuze niet kwijtraakt).
-  // Anders wordt een nieuwe area aangemaakt. Daarna opent de inspector.
+  // van hetzelfde cell_type. Alle gevonden cellen worden aan één area
+  // toegewezen zodat een kleurwijziging het hele vlak raakt.
   async function handlePickArea(col: number, row: number) {
     const cellsMap = cellsStore.get();
     const start = cellsMap.get(`${col},${row}`);
     if (!start) { toast('Klik op een getekende cel'); return; }
     if (start.cell_type === 'empty') { toast('Klik op een getekende cel'); return; }
 
-    // Flood-fill: bunker/custom/zak (alles wat NIET wall/container/afval is)
-    // wordt als één veld gezien. Ook door empty cellen heen — tot een budget
-    // van MAX_EMPTY_GAP cellen — zodat kleine gaatjes geen scheiding
-    // veroorzaken. Wall/container/afval zijn echte scheiders.
     const BLOCKERS = new Set(['wall', 'container', 'afval']);
     if (BLOCKERS.has(start.cell_type)) {
       toast('Klik op een veld (geen muur/container/afval)');
       return;
     }
-    const MAX_EMPTY_GAP = 8;
+    const targetType = start.cell_type;
+
+    // Stap 1: strict 4-connected flood-fill — alleen door cellen van
+    // hetzelfde cell_type, NIET door lege posities. Dit voorkomt dat
+    // ongerelateerde vlakken (bijv. zak-rijen) worden meegenomen.
     const visited = new Set<string>();
     const component: CellRow[] = [];
-    type QItem = { col: number; row: number; emptyDist: number };
-    const queue: QItem[] = [{ col: start.col, row: start.row, emptyDist: 0 }];
+    const queue: Array<{ col: number; row: number }> = [{ col: start.col, row: start.row }];
     while (queue.length) {
       const cur = queue.shift()!;
       const k = `${cur.col},${cur.row}`;
       if (visited.has(k)) continue;
       visited.add(k);
       const cell = cellsMap.get(k);
-
-      let isPaint = false;
-      if (cell) {
-        if (BLOCKERS.has(cell.cell_type)) continue;
-        component.push(cell);
-        isPaint = true;
-      }
-      const nextEmptyDist = isPaint ? 0 : cur.emptyDist + 1;
-      if (!isPaint && nextEmptyDist > MAX_EMPTY_GAP) continue;
-
+      if (!cell || cell.cell_type !== targetType) continue;
+      component.push(cell);
       for (const [dc, dr] of [[-1,0],[1,0],[0,-1],[0,1]] as Array<[number,number]>) {
-        const nk = `${cur.col + dc},${cur.row + dr}`;
-        if (!visited.has(nk)) {
-          queue.push({ col: cur.col + dc, row: cur.row + dr, emptyDist: nextEmptyDist });
-        }
+        queue.push({ col: cur.col + dc, row: cur.row + dr });
       }
     }
     if (component.length === 0) { toast('Geen aansluitend veld gevonden'); return; }
 
-    // Bonus: alle cellen die hetzelfde area_id hebben als enige cel in
-    // component, ook in component opnemen (zelfs als niet direct connected).
-    // Dit pakt 'eilandjes' van een bestaande area die door een gat geïsoleerd
-    // zouden zijn van het hoofdveld.
+    // Stap 2: alle cellen die hetzelfde area_id delen met een cel in de
+    // component, ook opnemen — zelfs als ze niet direct connected zijn.
+    // Dit pakt eilandjes van een bestaande area mee.
     const componentAreaIds = new Set<number | string>();
     for (const c of component) {
       if (c.area_id != null) componentAreaIds.add(c.area_id);
     }
     if (componentAreaIds.size > 0) {
       for (const c of cellsMap.values()) {
-        if (c.area_id != null && componentAreaIds.has(c.area_id)) {
+        if (c.area_id != null && componentAreaIds.has(c.area_id) && c.cell_type === targetType) {
           const k = `${c.col},${c.row}`;
           if (!visited.has(k)) {
             visited.add(k);
@@ -428,7 +519,7 @@
       }
     }
 
-    // Tellen welke area_ids al gebruikt worden binnen het component
+    // Kies de area met de meeste cellen als target
     const areaCount = new Map<number | string, number>();
     for (const c of component) {
       if (c.area_id != null) {
@@ -455,6 +546,7 @@
       }
     }
 
+    // Wijs ALLE cellen in de component toe aan de target area
     const ts = Date.now();
     const reassign = component
       .filter(c => c.area_id !== targetId)
@@ -482,11 +574,105 @@
     }
 
     schedulePush();
-
-    // Open de inspector zodat gebruiker een naam kan invullen
-    inspectorAreaId.set(targetId);
-    // En zet de tool weer op 'none' zodat de gebruiker direct kan typen
+    openInspector(targetId);
     paintToolStore.set({ type: 'none' });
+  }
+
+  // ── Overzicht: rubber-band selectie ────────────────────────────
+  // Drie scenario's afhankelijk van wat de selectie bevat:
+  //  1) Volledig binnen één bestaande sub-area met materiaal
+  //     → open die area's inspector + zet subSelectionCellsStore zodat de
+  //       gebruiker een deel-verwijder knop krijgt.
+  //  2) Bevat parent-bunker cellen + (optioneel) cellen van of grenzend aan
+  //     één bestaande sub-area met materiaal
+  //     → pending preview met mergeIntoAreaId — formulier vooraf gevuld,
+  //       Opslaan voegt cellen toe aan die area.
+  //  3) Alleen parent-bunker cellen, geen aansluitende sub-area
+  //     → pending preview met leeg formulier; Opslaan maakt nieuwe area.
+  // GEEN DB-writes vóór Opslaan; Annuleren/X gooit alles weg.
+  async function handleViewSelect(rect: SelectionRect) {
+    viewSelectJustFired = true;
+    const cellsMap = cellsStore.get();
+    const areasMap = areasStore.get();
+
+    // Verzamel alle bunker/custom-cellen in de selectie
+    const selected: CellRow[] = [];
+    for (let r = rect.row1; r <= rect.row2; r++) {
+      for (let c = rect.col1; c <= rect.col2; c++) {
+        const cell = cellsMap.get(`${c},${r}`);
+        if (cell && (cell.cell_type === 'bunker' || cell.cell_type === 'custom')) {
+          selected.push(cell);
+        }
+      }
+    }
+    if (selected.length === 0) return;
+
+    // Categoriseer cellen: in welke sub-areas-met-materiaal vallen ze, en
+    // hoeveel zitten er nog "los" in de parent bunker (geen materiaal).
+    const subAreaCellCount = new Map<number | string, number>();
+    let parentBunkerCells = 0;
+    for (const c of selected) {
+      if (c.area_id == null) { parentBunkerCells++; continue; }
+      const a = areasMap.get(c.area_id);
+      if (a?.material_name) {
+        subAreaCellCount.set(c.area_id, (subAreaCellCount.get(c.area_id) || 0) + 1);
+      } else {
+        parentBunkerCells++;
+      }
+    }
+
+    // Case 1: alle cellen liggen IN één bestaande sub-area met materiaal.
+    if (subAreaCellCount.size === 1 && parentBunkerCells === 0) {
+      const onlyAreaId = [...subAreaCellCount.keys()][0];
+      subSelectionCellsStore.set(selected.map((c) => ({ col: c.col, row: c.row })));
+      pendingSelectionStore.set(null);
+      openInspector(onlyAreaId, { keepSubSelection: true });
+      return;
+    }
+
+    // Cases 2 & 3: pending preview. Bepaal of er gemerged kan worden in een
+    // aangrenzende of overlappende sub-area met materiaal.
+    let mergeInto: AreaRow | null = null;
+    if (subAreaCellCount.size === 1) {
+      // Selectie raakt exact één sub-area + heeft parent cellen → merge daarin.
+      const aid = [...subAreaCellCount.keys()][0];
+      mergeInto = areasMap.get(aid) || null;
+    } else if (subAreaCellCount.size === 0) {
+      // Geen sub-area cellen geraakt — kijk naar BUREN voor merge-target.
+      const selectedKeys = new Set(selected.map((c) => `${c.col},${c.row}`));
+      for (const c of selected) {
+        for (const [dc, dr] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as Array<[number, number]>) {
+          const nk = `${c.col + dc},${c.row + dr}`;
+          if (selectedKeys.has(nk)) continue;
+          const nb = cellsMap.get(nk);
+          if (nb && nb.area_id != null && nb.cell_type === c.cell_type) {
+            const nbArea = areasMap.get(nb.area_id);
+            if (nbArea?.material_name) { mergeInto = nbArea; break; }
+          }
+        }
+        if (mergeInto) break;
+      }
+    }
+    // Bij subAreaCellCount.size > 1: meerdere sub-areas geraakt → laat
+    // mergeInto null en behandel als "nieuw" (gebruiker krijgt leeg formulier).
+
+    // Parent-kleur voor preview (kleur van de "achtergrond" bunker)
+    const parentArea = selected[0].area_id != null ? areasMap.get(selected[0].area_id) : null;
+    pendingSelectionStore.set({
+      cells: selected.map((c) => ({
+        col: c.col,
+        row: c.row,
+        cell_type: c.cell_type,
+        area_id: c.area_id ?? null,
+      })),
+      parentColor: parentArea?.color || '#9A3412',
+      mergeIntoAreaId: mergeInto?.id ?? null,
+      mergeIntoMaterial: mergeInto?.material_name ?? null,
+      mergeIntoQuantity:
+        (mergeInto?.metadata?.quantity != null ? Number(mergeInto.metadata.quantity) : null),
+      mergeIntoDate: (mergeInto?.metadata?.date as string | null) ?? null,
+    });
+    subSelectionCellsStore.set(null);
   }
 
   // ── Selectie callbacks (verplaatsen + resizen) ───────────────────
@@ -715,6 +901,11 @@
       onSelectionMove: handleSelectionMove,
       onSelectionResize: handleSelectionResize,
       onSelectionChange: handleSelectionChange,
+      onViewSelect: handleViewSelect,
+      canViewSelect: (col, row) => {
+        const cell = cellsStore.get().get(`${col},${row}`);
+        return !!cell && (cell.cell_type === 'bunker' || cell.cell_type === 'custom');
+      },
       onBackgroundMoved: (x, y, autoCentered) => {
         // autoCentered = true → renderer heeft zelf gecentreerd bij eerste laad.
         // Markeer dan ook als initialized zodat we niet opnieuw centreren bij volgende mount.
@@ -844,6 +1035,19 @@
     }));
     unsubs.push(zakOrientationStore.subscribe(updatePaintMode));
     unsubs.push(zakRijNumStore.subscribe(updatePaintMode));
+
+    // Pending selectie preview — toont de nog-niet-opgeslagen rubber-band
+    // selectie als dashed outline + lichte witte overlay op de cellen.
+    unsubs.push(pendingSelectionStore.subscribe((sel) => {
+      if (!renderer) return;
+      renderer.setPendingPreview(sel ? sel.cells.map((c) => ({ col: c.col, row: c.row })) : null);
+    }));
+
+    // Sub-selectie binnen een bestaande sub-area (voor partial-delete).
+    unsubs.push(subSelectionCellsStore.subscribe((cells) => {
+      if (!renderer) return;
+      renderer.setSubSelectionPreview(cells);
+    }));
 
     // Achtergrond-afbeelding: ALLE veranderingen (visible/opacity/scale/positie)
     // lopen via deze subscribe. Schalen verschuift de positie (anker = midden);

@@ -192,17 +192,45 @@ export async function applyServerDiff(payload: { areas: AreaRow[]; cells: any[];
 // Replace temp IDs (tmp-xxx) with server-assigned real IDs
 export async function applyIdMap(idMap: Record<string, number>) {
   if (!idMap || !Object.keys(idMap).length) return;
+
+  // Doe ALLE async DB-werk eerst, en bouw aMap/cMap op. Pas DAARNA in één
+  // synchrone tick: areasStore + cellsStore + _onIdRemap. Zo zit er geen
+  // microtask-grens tussen "areasStore heeft realId" en "inspectorAreaId
+  // wijst naar realId" — anders flikkert AreaInspector één DOM-flush lang
+  // weg omdat area $derived dan kort undefined is.
+  const aMap = new Map(areasStore.get());
+  const cMap = new Map(cellsStore.get());
+
   for (const [tmpId, realId] of Object.entries(idMap)) {
+    // IndexedDB: verplaats area van tmpId naar realId
     const area = await db.areas.get(tmpId);
     if (area) {
       await db.areas.delete(tmpId);
-      await db.areas.put({ ...area, id: realId });
+      const updated = { ...area, id: realId };
+      await db.areas.put(updated);
+      // In-memory: verwijder tmp, voeg real toe
+      aMap.delete(tmpId);
+      aMap.set(realId, updated);
     }
-    // Update cells referring to this temp ID
+    // IndexedDB + in-memory: update cells die naar tmpId verwijzen
     const refs = await db.cells.where('area_id').equals(tmpId).toArray();
     for (const c of refs) {
-      await db.cells.put({ ...c, area_id: realId });
+      const updated = { ...c, area_id: realId };
+      await db.cells.put(updated);
+      cMap.set(c.key, updated);
     }
   }
-  await hydrate();
+
+  // Atomic vanuit Svelte's perspectief: drie store-writes binnen dezelfde
+  // synchrone tick. DOM flusht pas op de volgende microtask en ziet beide
+  // stores + de UI-hook in hun nieuwe staat.
+  areasStore.set(aMap);
+  cellsStore.set(cMap);
+  if (_onIdRemap) _onIdRemap(idMap);
+}
+
+// Hook zodat UI-stores (inspectorAreaId) kunnen meeluisteren naar ID-remaps
+let _onIdRemap: ((idMap: Record<string, number>) => void) | null = null;
+export function registerIdRemapHook(fn: (idMap: Record<string, number>) => void) {
+  _onIdRemap = fn;
 }

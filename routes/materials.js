@@ -7,9 +7,14 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const { rows } = await dagstartPool.query(
-      "SELECT id, name FROM materials WHERE is_test = false AND is_active = true ORDER BY name"
+      "SELECT id, name FROM materials WHERE is_active = true ORDER BY name"
     );
-    res.json(rows);
+    // Markeer test-materialen op basis van naam
+    const result = rows.map(r => ({
+      ...r,
+      is_test: /test/i.test(r.name),
+    }));
+    res.json(result);
   } catch (err) {
     console.error('GET /api/materials error:', err);
     res.status(500).json({ error: 'Database error' });
@@ -19,7 +24,7 @@ router.get('/', async (req, res) => {
 router.get('/all', async (req, res) => {
   try {
     const { rows } = await dagstartPool.query(
-      "SELECT id, name, is_test FROM materials WHERE is_active = true ORDER BY name"
+      "SELECT id, name FROM materials WHERE is_active = true ORDER BY name"
     );
     res.json(rows);
   } catch (err) {

@@ -12,7 +12,7 @@ function createStore<T>(initial: T) {
   };
 }
 
-export interface Material { id: number; name: string }
+export interface Material { id: number; name: string; is_test?: boolean }
 
 export const materialsStore = createStore<Material[]>([]);
 

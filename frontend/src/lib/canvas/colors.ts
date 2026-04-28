@@ -12,7 +12,8 @@ export const TYPE_COLORS: Record<string, { fill: string; stroke: string; text: s
 
 // Materiaal-specifieke kleuren (overrules wanneer area heeft material_name)
 export const MATERIAL_COLORS: Record<string, string> = {
-  S01: '#a8c8e0', S02: '#6a9bbd', S17: '#3d6f8e',
+  TL1: '#2980b9', TL2: '#27ae60', TL3: '#8e44ad',
+  S01: '#a8c8e0', S02: '#6a9bbd', S03: '#4a7a9b', S17: '#3d6f8e',
   T01: '#dba8a8', T02: '#b06868', T17: '#7a3c3c',
   Pellets: '#e0d5a0', DVRMI050: '#d4b896', DVRNA050: '#96c8aa',
   LUMPS: '#9cc0d4', Quarantine: '#a888b5',
@@ -22,8 +23,13 @@ export function colorFor(cellType: string, label?: string, materialName?: string
   if (customColor) {
     return { fill: customColor, stroke: shade(customColor, -15), text: contrastText(customColor) };
   }
-  if (materialName && MATERIAL_COLORS[materialName]) {
-    const f = MATERIAL_COLORS[materialName];
+  if (materialName) {
+    if (MATERIAL_COLORS[materialName]) {
+      const f = MATERIAL_COLORS[materialName];
+      return { fill: f, stroke: shade(f, -15), text: contrastText(f) };
+    }
+    // Materiaal zonder vaste kleur → genereer een kleur op basis van de naam
+    const f = hashColor(materialName);
     return { fill: f, stroke: shade(f, -15), text: contrastText(f) };
   }
   if (label && MATERIAL_COLORS[label]) {
@@ -54,10 +60,23 @@ export function contrastText(hex: string): string {
   return yiq >= 140 ? '#1a1a2e' : '#fff';
 }
 
-// Hash naar pleasant pastel
+// Hash naar pleasant pastel (returns hex)
 export function hashColor(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
   const h = Math.abs(hash) % 360;
-  return `hsl(${h}, 55%, 60%)`;
+  // HSL to hex: s=55%, l=55%
+  const s = 0.55, l = 0.55;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }

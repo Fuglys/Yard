@@ -11,8 +11,8 @@
 
   import { startSync, schedulePush } from './lib/sync/engine';
   import { loadMaterials } from './lib/stores/materials';
-  import { authStore, modeStore, editPanelOpen } from './lib/stores/ui';
-  import { cellsStore, deleteCells, areasStore, upsertArea, upsertCells, nextTempId } from './lib/stores/state';
+  import { authStore, modeStore, editPanelOpen, inspectorAreaId, pendingSubAreaId } from './lib/stores/ui';
+  import { cellsStore, deleteCells, areasStore, upsertArea, upsertCells, nextTempId, registerIdRemapHook } from './lib/stores/state';
   import { useStore } from './lib/useStore.svelte';
 
   const mode = useStore(modeStore);
@@ -192,6 +192,19 @@
       }, 1500);
     });
     loadMaterials();
+
+    // Wanneer tmp-IDs worden vervangen door echte server-IDs,
+    // update inspectorAreaId en pendingSubAreaId zodat de inspector open blijft.
+    registerIdRemapHook((idMap) => {
+      const currentInspector = inspectorAreaId.get();
+      const currentPending = pendingSubAreaId.get();
+      if (currentInspector != null && typeof currentInspector === 'string' && idMap[currentInspector] != null) {
+        inspectorAreaId.set(idMap[currentInspector]);
+      }
+      if (currentPending != null && typeof currentPending === 'string' && idMap[currentPending] != null) {
+        pendingSubAreaId.set(idMap[currentPending]);
+      }
+    });
   });
 
   function logout() {

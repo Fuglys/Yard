@@ -26,7 +26,7 @@
   function isActive(type: string) { return paint.value.type === type; }
 
   function setRijNum(v: number) {
-    if (!Number.isFinite(v) || v < 1) v = 1;
+    if (!Number.isFinite(v) || v < 0) v = 0;
     if (v > 999) v = 999;
     zakRijNumStore.set(Math.floor(v));
   }
@@ -94,7 +94,7 @@
       <input
         class="rij-input tnum"
         type="number"
-        min="1"
+        min="0"
         max="999"
         value={zakRijNum.value}
         oninput={(e) => setRijNum(Number((e.currentTarget as HTMLInputElement).value))}
@@ -102,19 +102,12 @@
       <button class="rij-step" onclick={() => bumpRij(1)} title="Volgende" aria-label="Volgende rij">+</button>
     </div>
     <span class="rij-hint">
-      De volgende geplaatste zakken worden <strong>Rij {zakRijNum.value}</strong>.
-      Pas dit nummer aan vóór een nieuwe rij te plaatsen.
+      {#if zakRijNum.value > 0}
+        De volgende geplaatste zakken worden <strong>Rij {zakRijNum.value}</strong>.
+      {:else}
+        Zakken worden geplaatst <strong>zonder rij-nummer</strong>.
+      {/if}
     </span>
-  </div>
-</SectionCard>
-
-<!-- ─── Onderhoud ─── -->
-<SectionCard title="Onderhoud">
-  <div class="maint-grid">
-    <button class="maint-btn" onclick={cleanupOrphanNumbering} title="Verwijder alle losse nummering-cellen">
-      <span class="maint-icon">🧹</span>
-      <span class="maint-text">Wis losse nummering</span>
-    </button>
   </div>
 </SectionCard>
 

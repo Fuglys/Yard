@@ -21,6 +21,10 @@ interface RendererOptions {
   onSelectionMove?: (from: SelectionRect, to: SelectionRect) => void;
   onSelectionResize?: (from: SelectionRect, to: SelectionRect) => void;
   onSelectionChange?: (sel: SelectionRect | null) => void;
+  // Rubber-band selectie in overzicht-modus (voor sub-vlak tekenen in bunker-velden)
+  onViewSelect?: (rect: SelectionRect) => void;
+  // Check of een cel selecteerbaar is in view-mode (alleen bunker-cellen)
+  canViewSelect?: (col: number, row: number) => boolean;
   // Wordt aangeroepen wanneer de gebruiker de achtergrond-afbeelding heeft versleept.
   // Krijgt de nieuwe linkerboven-positie in canvas-coordinaten.
   onBackgroundMoved?: (x: number, y: number, autoCentered: boolean) => void;
@@ -56,6 +60,8 @@ export class YardRenderer {
   private zakEdges = new Map<string, Konva.Group>();
   private selectionRect: Konva.Rect;
   private hoverRect: Konva.Rect;
+  private pendingGroup!: Konva.Group;
+  private subSelectionGroup!: Konva.Group;
   private showGridNumbers = false;
   private editMode = false;
 
@@ -148,6 +154,17 @@ export class YardRenderer {
     });
     this.uiLayer.add(this.hoverRect);
 
+    // Group voor de pending-selectie preview (rubber-band → AreaInspector,
+    // nog niet opgeslagen). Wordt elke keer leeggemaakt en opnieuw gevuld
+    // wanneer setPendingPreview wordt aangeroepen.
+    this.pendingGroup = new Konva.Group({ listening: false });
+    this.uiLayer.add(this.pendingGroup);
+
+    // Group voor sub-selectie binnen een bestaande sub-area (cellen zijn al
+    // opgeslagen, gebruiker heeft een deel gerubberband voor partial-delete).
+    this.subSelectionGroup = new Konva.Group({ listening: false });
+    this.uiLayer.add(this.subSelectionGroup);
+
     this.drawBackground();
     this.attachEvents();
     this.fitToContent([]);
@@ -232,6 +249,103 @@ export class YardRenderer {
       }
     }
     this.bgLayer.batchDraw();
+  }
+
+  // Render een visuele preview van een rubber-band-selectie die nog NIET is
+  // opgeslagen. Tekent één semi-transparante witte overlay per geselecteerde
+  // cel, plus een dashed wit kader om het hele selectie-cluster — duidelijk
+  // visueel onderscheid van een echte (opgeslagen) sub-area.
+  setPendingPreview(
+    cells: Array<{ col: number; row: number }> | null
+  ): void {
+    this.pendingGroup.destroyChildren();
+    if (!cells || cells.length === 0) {
+      this.pendingGroup.visible(false);
+      this.uiLayer.batchDraw();
+      return;
+    }
+    let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+    for (const c of cells) {
+      // Per-cel semi-transparante witte overlay — IETS overlap (CELL+0.6) zodat
+      // er geen subpixel-naden tussen aanliggende cellen zichtbaar zijn.
+      this.pendingGroup.add(new Konva.Rect({
+        x: c.col * CELL,
+        y: c.row * CELL,
+        width: CELL + 0.6,
+        height: CELL + 0.6,
+        fill: 'rgba(255,255,255,0.35)',
+        listening: false,
+        perfectDrawEnabled: false,
+      }));
+      if (c.col < minC) minC = c.col;
+      if (c.col > maxC) maxC = c.col;
+      if (c.row < minR) minR = c.row;
+      if (c.row > maxR) maxR = c.row;
+    }
+    // Dashed outline rond bounding box
+    this.pendingGroup.add(new Konva.Rect({
+      x: minC * CELL,
+      y: minR * CELL,
+      width: (maxC - minC + 1) * CELL,
+      height: (maxR - minR + 1) * CELL,
+      stroke: '#ffffff',
+      strokeWidth: 2,
+      dash: [8, 6],
+      shadowColor: 'rgba(0,0,0,0.6)',
+      shadowBlur: 4,
+      shadowOpacity: 0.8,
+      listening: false,
+      perfectDrawEnabled: false,
+    }));
+    this.pendingGroup.visible(true);
+    this.uiLayer.batchDraw();
+  }
+
+  // Sub-selectie binnen een bestaande sub-area: cellen die door de gebruiker
+  // zijn gerubberband ter voorbereiding op partial-delete. Visueel: per-cel
+  // donker-rode overlay + solide rode dashed outline rond de bounding box —
+  // duidelijk verschil met de "pending preview" (witte/transparant).
+  setSubSelectionPreview(
+    cells: Array<{ col: number; row: number }> | null
+  ): void {
+    this.subSelectionGroup.destroyChildren();
+    if (!cells || cells.length === 0) {
+      this.subSelectionGroup.visible(false);
+      this.uiLayer.batchDraw();
+      return;
+    }
+    let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+    for (const c of cells) {
+      this.subSelectionGroup.add(new Konva.Rect({
+        x: c.col * CELL,
+        y: c.row * CELL,
+        width: CELL + 0.6,
+        height: CELL + 0.6,
+        fill: 'rgba(231,76,60,0.32)',
+        listening: false,
+        perfectDrawEnabled: false,
+      }));
+      if (c.col < minC) minC = c.col;
+      if (c.col > maxC) maxC = c.col;
+      if (c.row < minR) minR = c.row;
+      if (c.row > maxR) maxR = c.row;
+    }
+    this.subSelectionGroup.add(new Konva.Rect({
+      x: minC * CELL,
+      y: minR * CELL,
+      width: (maxC - minC + 1) * CELL,
+      height: (maxR - minR + 1) * CELL,
+      stroke: '#c0392b',
+      strokeWidth: 2,
+      dash: [6, 4],
+      shadowColor: 'rgba(0,0,0,0.5)',
+      shadowBlur: 3,
+      shadowOpacity: 0.7,
+      listening: false,
+      perfectDrawEnabled: false,
+    }));
+    this.subSelectionGroup.visible(true);
+    this.uiLayer.batchDraw();
   }
 
   setShowGridNumbers(v: boolean) {
@@ -567,8 +681,13 @@ export class YardRenderer {
         area?.color || undefined
       );
       const isZakAnchor = cell.cell_type === 'zak' && !!cell.meta?.zakAnchor;
-      const rectW = isZakAnchor ? 2 * CELL : CELL;
-      const rectH = isZakAnchor ? 2 * CELL : CELL;
+      // Bunker/custom-cellen: rects 0.6 px overlap zodat er geen subpixel-naden
+      // tussen aangrenzende cellen zichtbaar zijn (anders zie je een raster
+      // door een grote bunker). Voor zakken/walls/container/afval houden we
+      // strikte cel-grenzen, want die hebben juist een herkenbare structuur.
+      const overlap = (cell.cell_type === 'bunker' || cell.cell_type === 'custom') ? 0.6 : 0;
+      const rectW = isZakAnchor ? 2 * CELL : CELL + overlap;
+      const rectH = isZakAnchor ? 2 * CELL : CELL + overlap;
 
       let rect = this.cellShapes.get(key);
       if (!rect) {
@@ -623,11 +742,11 @@ export class YardRenderer {
         if (sides.allEdges) {
           rect.strokeEnabled(true);
           rect.stroke(colors.stroke);
-          rect.strokeWidth(1);
+          rect.strokeWidth(this.editMode ? 1 : 0.3);
         } else if (sides.anyEdge) {
-          rect.strokeEnabled(true);
+          rect.strokeEnabled(this.editMode);
           rect.stroke(colors.stroke);
-          rect.strokeWidth(0.5);
+          rect.strokeWidth(0.3);
         } else {
           rect.strokeEnabled(false);
           rect.strokeWidth(0);
@@ -705,7 +824,30 @@ export class YardRenderer {
     // zodat aaneengesloten rijen elkaar niet overlappen.
     for (const [aid, keys] of areaCells) {
       const area = areas.get(aid);
-      if (!area || !area.name) {
+      const isZak = area?.area_type === 'zak';
+
+      // Bepaal display-tekst:
+      // - Zakken: altijd area.name (bijv. "Rij 1") — materiaal wordt apart getoond
+      // - Bunker/custom met materiaal: basisnaam + partijen + datum
+      // - Anders: area.name
+      let displayName = '';
+      if (isZak) {
+        displayName = area?.name || '';
+      } else if (area?.material_name) {
+        const baseName = area.material_name.replace(/\s+[STst]$/, '').trim();
+        const qty = area.metadata?.quantity;
+        let line1 = qty ? `${baseName} (${qty})` : baseName;
+        if (area.metadata?.date) {
+          // Format als Nederlandse datum: 28-4-2026
+          const d = new Date(area.metadata.date + 'T00:00:00');
+          const nlDate = `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`;
+          line1 += `\n${nlDate}`;
+        }
+        displayName = line1;
+      } else {
+        displayName = area?.name || '';
+      }
+      if (!area || !displayName) {
         const lbl = this.areaLabels.get(aid);
         if (lbl) { lbl.destroy(); this.areaLabels.delete(aid); }
         continue;
@@ -725,7 +867,6 @@ export class YardRenderer {
       }
       if (n === 0) continue;
 
-      const isZak = area.area_type === 'zak';
       const isContainerOrAfval = area.area_type === 'container' || area.area_type === 'afval';
 
       let lbl = this.areaLabels.get(aid);
@@ -738,7 +879,7 @@ export class YardRenderer {
         this.labelLayer.add(lbl);
         this.areaLabels.set(aid, lbl);
       }
-      lbl.text(area.name);
+      lbl.text(displayName);
       lbl.offsetX(0); lbl.offsetY(0);
 
       if (isZak) {
@@ -758,39 +899,66 @@ export class YardRenderer {
         lbl.y(labelY);
         lbl.width(labelW);
       } else if (isContainerOrAfval) {
-        // Vetgedrukte witte tekst met dunne zwarte rand BUITEN de letters
-        // (fillAfterStrokeEnabled). Zonder die flag overlapt de stroke met
-        // de fill en oogt het te dun.
-        const cx = (sumC / n) * CELL + CELL / 2;
-        const cy = (sumR / n) * CELL + CELL / 2;
-        const fontSize = Math.max(11, Math.min(18, Math.sqrt(n) * 3.2));
+        // Tekst gecentreerd in het vlak, zo groot mogelijk zonder buiten het veld te komen.
+        const areaW = (maxC - minC + 1) * CELL;
+        const areaH = (maxR - minR + 1) * CELL;
+        const centerX = minC * CELL;
+        const centerY = minR * CELL;
+        // Schat fontSize: breedte / aantal karakters, maar niet groter dan hoogte
+        const textLen = Math.max(1, displayName.length);
+        const maxByWidth = (areaW * 1.4) / textLen;
+        const maxByHeight = areaH * 0.6;
+        const fontSize = Math.max(12, Math.min(maxByWidth, maxByHeight, 60));
         lbl.fontSize(fontSize);
         lbl.fontStyle('900 bold');
         lbl.fill('#fff');
         lbl.strokeEnabled(true);
         lbl.stroke('#000');
-        lbl.strokeWidth(1.2);
+        lbl.strokeWidth(Math.max(0.8, fontSize * 0.06));
         lbl.fillAfterStrokeEnabled(true);
         lbl.shadowOpacity(0);
         lbl.shadowBlur(0);
-        lbl.x(cx - 100);
-        lbl.y(cy - fontSize / 2);
-        lbl.width(200);
+        lbl.x(centerX);
+        lbl.y(centerY + (areaH - fontSize) / 2);
+        lbl.width(areaW);
+        lbl.align('center');
+        lbl.verticalAlign('middle');
       } else {
-        lbl.fontStyle('bold');
-        // Originele centroid-stijl voor overige areas (bunkers, custom, etc.)
-        const cx = (sumC / n) * CELL + CELL / 2;
-        const cy = (sumR / n) * CELL + CELL / 2;
-        const fontSize = Math.max(10, Math.min(22, Math.sqrt(n) * 4));
+        // Bunker/custom areas: tekst schaalt mee met vlakgrootte, gecentreerd.
+        // Geen auto-wrap (wrap: 'none') — anders splits Konva "Augustine (14)"
+        // op de spatie wanneer de fontSize-schatting iets te ruim is, en zien
+        // we 3 regels i.p.v. 2 die niet meer netjes centreren.
+        // Bold karakter-breedte ≈ 0.7 × fontSize voor een veilige schatting.
+        const areaW = (maxC - minC + 1) * CELL;
+        const areaH = (maxR - minR + 1) * CELL;
+        const centerX = minC * CELL;
+        const centerY = minR * CELL;
+        const lines = displayName.split('\n');
+        const longestLine = Math.max(...lines.map((l) => l.length), 1);
+        const PAD = 0.92;                       // 8% padding aan elke kant
+        const CHAR_W = 0.7;                     // bold-karakter breedte/fontSize ratio
+        const LINE_H = 1.15;                    // line-height factor
+        const fsByW = (areaW * PAD) / (longestLine * CHAR_W);
+        const fsByH = (areaH * PAD) / (lines.length * LINE_H);
+        const fontSize = Math.max(9, Math.min(fsByW, fsByH, 80));
         lbl.fontSize(fontSize);
+        lbl.fontStyle('900 bold');
         lbl.fill('#fff');
-        lbl.strokeEnabled(false);
-        lbl.shadowColor('rgba(0,0,0,0.5)');
-        lbl.shadowBlur(4);
+        lbl.strokeEnabled(true);
+        lbl.stroke('#000');
+        lbl.strokeWidth(Math.max(0.6, fontSize * 0.06));
+        lbl.fillAfterStrokeEnabled(true);
+        lbl.shadowColor('rgba(0,0,0,0.55)');
+        lbl.shadowBlur(Math.max(2, fontSize * 0.08));
         lbl.shadowOpacity(0.7);
-        lbl.x(cx - 100);
-        lbl.y(cy - fontSize / 2);
-        lbl.width(200);
+        lbl.lineHeight(LINE_H);
+        lbl.wrap('none');
+        lbl.x(centerX);
+        lbl.y(centerY);
+        lbl.width(areaW);
+        lbl.height(areaH);
+        lbl.align('center');
+        lbl.verticalAlign('middle');
       }
     }
 
@@ -1196,6 +1364,21 @@ export class YardRenderer {
         }
       } else {
         this.isPanning = true;
+        // In view-mode (paintMode === 'none'): start rubber-band selectie
+        // alleen als de startcel selecteerbaar is (bunker-cel).
+        if (this.paintMode === 'none') {
+          const startCell = this.getCellAtPointer();
+          if (startCell && (!this.opts.canViewSelect || this.opts.canViewSelect(startCell.col, startCell.row))) {
+            this.isSelecting = true;
+            this.selectionStart = startCell;
+            const x = startCell.col * CELL;
+            const y = startCell.row * CELL;
+            this.selectionRect.position({ x, y }).size({ width: CELL, height: CELL }).visible(true);
+            this.uiLayer.batchDraw();
+            // Niet pannen als we selecteren
+            this.isPanning = false;
+          }
+        }
       }
     });
 
@@ -1443,6 +1626,14 @@ export class YardRenderer {
         if (this.paintMode === 'select') {
           // Activate selectie met handles
           this.setSelection(rect);
+        } else if (this.paintMode === 'none' && this.opts.onViewSelect) {
+          // View-mode rubber-band: stuur naar onViewSelect als het meer dan 1 cel is
+          const w = rect.col2 - rect.col1 + 1;
+          const h = rect.row2 - rect.row1 + 1;
+          if (w > 1 || h > 1) {
+            (this as any).__viewSelectTime = Date.now();
+            this.opts.onViewSelect(rect);
+          }
         } else {
           // Legacy: bulk-paint via select (achteraf alle cellen sturen)
           const cells: Array<{ col: number; row: number }> = [];
@@ -1458,8 +1649,13 @@ export class YardRenderer {
 
     // Click — voor area inspector. Cell-rects zijn listening:false (perf),
     // dus we lezen de cel onder de pointer rechtstreeks van de stage.
+    // Bij een korte klik (geen drag) → onCellClick.
+    // Bij een sleep in view-mode → rubber-band selectie → onViewSelect.
     stage.on('click tap', (e) => {
       if (this.paintMode !== 'none') return;
+      // Blokkeer click als er net een viewSelect was (binnen 500ms)
+      const vst = (this as any).__viewSelectTime || 0;
+      if (Date.now() - vst < 500) return;
       const cell = this.getCellAtPointer();
       if (cell && this.opts.onCellClick) {
         this.opts.onCellClick(cell.col, cell.row, e);
