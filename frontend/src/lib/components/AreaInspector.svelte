@@ -778,16 +778,11 @@
           </label>
           <div class="actions">
             {#if isPending}
-              {#if confirmingDelete}
-                <div class="confirm-row">
-                  <span>Materiaal uit selectie verwijderen?</span>
-                  <button class="btn danger" onclick={removePendingSelectionCells}>Ja</button>
-                  <button class="btn" onclick={() => { confirmingDelete = false; }}>Nee</button>
-                </div>
-              {:else}
-                <button class="btn danger" onclick={startDeleteWithQty}>🗑 Verwijderen</button>
-                <button class="btn primary" onclick={saveContent}>Opslaan</button>
-              {/if}
+              <!-- Pending = rubber-band gestart BUITEN een balen-veld
+                   (parent-only flow). Selectie bevat per definitie geen
+                   bestaand materiaal, dus géén verwijder-knop hier — alleen
+                   nieuw plaatsen / merge in buurvlak via Opslaan. -->
+              <button class="btn primary" onclick={saveContent}>Opslaan</button>
             {:else if confirmingDelete}
               <div class="confirm-row">
                 <span>{isSubSel ? `${subSelCount} cel${subSelCount === 1 ? '' : 'len'} verwijderen?` : 'Verwijderen?'}</span>
