@@ -1987,9 +1987,15 @@ export class YardRenderer {
 
     // Pointer up
     stage.on('mouseup touchend mouseleave', (e) => {
-      // Update touch count
+      // Update touch count + onthou wanneer een multi-touch eindigde, zodat
+      // we korte tijd geen "tap" als click registreren (anders triggert de
+      // 2-vinger-zoom een ongewenst form-open op release).
       if (e.evt instanceof TouchEvent) {
+        const prev = this.activeTouchCount;
         this.activeTouchCount = e.evt.touches.length;
+        if (prev > 1) {
+          (this as any).__lastMultiTouchEnd = Date.now();
+        }
       }
 
       // Force-pan einde — alleen als alle relevante triggers losgelaten zijn
@@ -2095,6 +2101,12 @@ export class YardRenderer {
       // Blokkeer click als er net een viewSelect was (binnen 500ms)
       const vst = (this as any).__viewSelectTime || 0;
       if (Date.now() - vst < 500) return;
+      // Blokkeer click direct na 2-vinger zoom/pan — die geeft anders een
+      // ongewenste tap bij het loslaten.
+      const mte = (this as any).__lastMultiTouchEnd || 0;
+      if (Date.now() - mte < 350) return;
+      // Negeer ook taps die plaatsvinden tijdens nog actieve multi-touch.
+      if (this.activeTouchCount > 1) return;
       const cell = this.getCellAtPointer();
       if (cell && this.opts.onCellClick) {
         this.opts.onCellClick(cell.col, cell.row, e);
