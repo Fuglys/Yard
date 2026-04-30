@@ -10,6 +10,7 @@
   import BulkReassignDrawer from './lib/components/BulkReassignDrawer.svelte';
   import ZakMaterialPopover from './lib/components/ZakMaterialPopover.svelte';
   import ZakMultiPopover from './lib/components/ZakMultiPopover.svelte';
+  import InventoryPanel from './lib/components/InventoryPanel.svelte';
 
   import { startSync, schedulePush } from './lib/sync/engine';
   import { loadMaterials } from './lib/stores/materials';
@@ -286,6 +287,9 @@
 <BulkReassignDrawer />
 <ZakMaterialPopover />
 <ZakMultiPopover />
+{#if mode.value === 'view'}
+  <InventoryPanel />
+{/if}
 <LoginModal bind:open={loginOpen} />
 <Toast />
 

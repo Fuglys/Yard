@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { YardRenderer, type SelectionRect } from '../canvas/YardRenderer';
   import { areasStore, cellsStore, upsertArea, upsertCells, deleteCells, deleteArea, nextTempId } from '../stores/state';
-  import { paintToolStore, modeStore, inspectorAreaId, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore, zakPickerStore, zakMultiSelectStore, traylijnStore } from '../stores/ui';
+  import { paintToolStore, modeStore, inspectorAreaId, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, lineLockStore, brushSizeStore, zakOrientationStore, zakRijNumStore, lastPlacedAreaId, backgroundImageStore, zakPickerStore, zakMultiSelectStore, traylijnStore, toast } from '../stores/ui';
   import { schedulePush } from '../sync/engine';
   import { history } from '../stores/history';
   import type { CellRow, AreaRow } from '../db/dexie';
@@ -10,7 +10,7 @@
   let container: HTMLDivElement;
   let renderer: YardRenderer | null = null;
 
-  // Status indicator (voor in template)
+  // Status indicator — clean label rewrite
   let activeToolLabel = $state('Geen tool — sleep om te pannen');
   let isEditMode = $state(false);
 
@@ -585,10 +585,36 @@
   //  3) Alleen parent-bunker cellen, geen aansluitende sub-area
   //     → pending preview met leeg formulier; Opslaan maakt nieuwe area.
   // GEEN DB-writes vóór Opslaan; Annuleren/X gooit alles weg.
-  async function handleViewSelect(rect: SelectionRect) {
+  async function handleViewSelect(rect: SelectionRect, startCell?: { col: number; row: number } | null) {
     viewSelectJustFired = true;
     const cellsMap = cellsStore.get();
     const areasMap = areasStore.get();
+
+    // Bepaal de intent op basis van de start-cel:
+    //  - Start IN een sub-area met materiaal → "verwijder gedeelte van die area"
+    //    → filter cellen tot UITSLUITEND cellen met dat area_id.
+    //  - Start BUITEN een materiaal-area (parent bunker, leeg, of geen area) →
+    //    "nieuw vlak / merge in parent" → filter cellen tot UITSLUITEND cellen
+    //    zonder materiaal (parent bunker of leeg).
+    // Resultaat: rubber-band-selectie kan visueel overal heen, maar pakt alleen
+    // de cellen op die overeenkomen met het start-vlak. Multi-area selectie
+    // wordt zo onmogelijk → geen verwarring meer.
+    let restrictToAreaId: number | string | null | 'parent-only' = null;
+    if (startCell) {
+      const startCellObj = cellsMap.get(`${startCell.col},${startCell.row}`);
+      if (startCellObj?.area_id != null) {
+        const startArea = areasMap.get(startCellObj.area_id);
+        if (startArea?.material_name) {
+          // Start in materiaal-area → beperk tot die area
+          restrictToAreaId = startCellObj.area_id;
+        } else {
+          // Start in parent (geen materiaal) → beperk tot parent-only
+          restrictToAreaId = 'parent-only';
+        }
+      } else {
+        restrictToAreaId = 'parent-only';
+      }
+    }
 
     // Categoriseer wat er in de selectie zit
     const selected: CellRow[] = [];      // bunker/custom cellen
@@ -598,6 +624,15 @@
         const cell = cellsMap.get(`${c},${r}`);
         if (!cell) continue;
         if (cell.cell_type === 'bunker' || cell.cell_type === 'custom') {
+          // Filter op intent (zie hierboven)
+          if (restrictToAreaId === 'parent-only') {
+            if (cell.area_id != null) {
+              const a = areasMap.get(cell.area_id);
+              if (a?.material_name) continue;
+            }
+          } else if (restrictToAreaId != null) {
+            if (cell.area_id !== restrictToAreaId) continue;
+          }
           selected.push(cell);
         } else if (cell.cell_type === 'zak' && cell.meta?.zakAnchor) {
           zakAnchors.push(cell);
@@ -647,6 +682,8 @@
     }
 
     // Case 1: alle cellen liggen IN één bestaande sub-area met materiaal.
+    // Open de AreaInspector met sub-selection — gebruiker krijgt daar de
+    // qty-form om partijen aan te passen / cellen te verwijderen.
     if (subAreaCellCount.size === 1 && parentBunkerCells === 0) {
       const onlyAreaId = [...subAreaCellCount.keys()][0];
       subSelectionCellsStore.set(selected.map((c) => ({ col: c.col, row: c.row })));
@@ -678,8 +715,74 @@
         if (mergeInto) break;
       }
     }
-    // Bij subAreaCellCount.size > 1: meerdere sub-areas geraakt → laat
-    // mergeInto null en behandel als "nieuw" (gebruiker krijgt leeg formulier).
+    // Bij subAreaCellCount.size > 1: meerdere sub-areas geraakt → per partij
+    // vragen hoeveel er nog staan, geselecteerde cellen teruggeven aan parent.
+    if (subAreaCellCount.size > 1) {
+      const ts = Date.now();
+      for (const [aid, count] of subAreaCellCount) {
+        const area = areasMap.get(aid);
+        if (!area?.material_name) continue;
+        const matName = area.material_name.replace(/\s+[STst]$/, '').trim();
+        const currentQty = area.metadata?.quantity || '?';
+        const partyCells = selected.filter(c => c.area_id === aid);
+        const input = prompt(
+          `${matName}: er staan ${currentQty} partijen.\n` +
+          `Je verwijdert ${partyCells.length} cellen.\n\n` +
+          `Hoeveel partijen staan er nog?`,
+          String(currentQty)
+        );
+        if (input === null) continue;
+        const newQty = Number(input) || 0;
+
+        // Zoek parent bunker-area (het lege bunker-veld, NIET een andere partij)
+        const neighborAreaIds = new Map<number | string, number>();
+        for (const c of partyCells) {
+          for (const [dc, dr] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const nb = cellsMap.get(`${c.col+dc},${c.row+dr}`);
+            if (nb && nb.area_id != null && nb.area_id !== aid && nb.cell_type === c.cell_type) {
+              const nbArea = areasMap.get(nb.area_id);
+              // Alleen het lege bunker-veld (geen materiaal) als parent
+              if (!nbArea?.material_name) {
+                neighborAreaIds.set(nb.area_id, (neighborAreaIds.get(nb.area_id) || 0) + 1);
+              }
+            }
+          }
+        }
+        let parentAreaId: number | string | null = null;
+        let maxCnt = 0;
+        for (const [naid, cnt] of neighborAreaIds) {
+          if (cnt > maxCnt) { maxCnt = cnt; parentAreaId = naid; }
+        }
+
+        // Geef geselecteerde cellen terug aan parent
+        if (parentAreaId != null) {
+          await upsertCells(partyCells.map(c => ({
+            col: c.col, row: c.row,
+            cell_type: c.cell_type,
+            area_id: parentAreaId!,
+            label: '', meta: c.meta || {},
+            updated_at: ts,
+          })));
+        }
+
+        // Update partij-aantal
+        if (newQty > 0) {
+          await upsertArea({ ...area, metadata: { ...area.metadata, quantity: newQty }, updated_at: ts });
+        } else {
+          // Check of er nog cellen over zijn in deze area (gebruik verse store)
+          const freshCells = cellsStore.get();
+          const remaining = [...freshCells.values()].filter(c => c.area_id === aid);
+          if (remaining.length === 0) {
+            await deleteArea(aid);
+          } else {
+            await upsertArea({ ...area, material_name: null, metadata: { ...area.metadata, quantity: null, date: null }, updated_at: ts });
+          }
+        }
+      }
+      schedulePush();
+      toast('Partijen bijgewerkt');
+      return;
+    }
 
     // Parent-kleur voor preview (kleur van de "achtergrond" bunker)
     const parentArea = selected[0].area_id != null ? areasMap.get(selected[0].area_id) : null;

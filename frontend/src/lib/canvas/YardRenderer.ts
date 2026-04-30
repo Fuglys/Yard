@@ -20,10 +20,13 @@ interface RendererOptions {
   onCellDrag?: (cells: Array<{ col: number; row: number }>) => void;
   onAreaClick?: (areaId: number | string) => void;
   onSelectionMove?: (from: SelectionRect, to: SelectionRect) => void;
+  // Optional: start-cell info wordt meegegeven aan onViewSelect zodat
+  // YardCanvas kan beslissen wat de intent is (verwijderen vs nieuw vlak).
+  // Wordt gevuld op basis van waar de drag begint.
   onSelectionResize?: (from: SelectionRect, to: SelectionRect) => void;
   onSelectionChange?: (sel: SelectionRect | null) => void;
   // Rubber-band selectie in overzicht-modus (voor sub-vlak tekenen in bunker-velden)
-  onViewSelect?: (rect: SelectionRect) => void;
+  onViewSelect?: (rect: SelectionRect, startCell?: { col: number; row: number } | null) => void;
   // Check of een cel selecteerbaar is in view-mode.
   // Return false → blokkeer rubber-band (gebruiker pant in plaats daarvan).
   // Return true → start normale per-cel rubber-band (bunker/custom).
@@ -379,6 +382,25 @@ export class YardRenderer {
     this.editMode = v;
     this.drawBackground();
     this.applyBgImageVisibility();
+    this.applyViewCache();
+  }
+
+  /**
+   * Performance: in overzicht-mode rastert de cellLayer een offscreen canvas
+   * (one-time bake). Pan/zoom = simpel image-transform i.p.v. 18k Konva.Rect
+   * shapes opnieuw tekenen → ~5-10× sneller op tablets.
+   * In edit-mode uit zodat live mutaties direct zichtbaar blijven.
+   */
+  private applyViewCache() {
+    // Eerst altijd clearCache zodat oude cache nooit overblijft (sommige
+    // Konva-versies vervangen de cache niet automatisch op een tweede
+    // cache()-call).
+    if (this.cellLayer.isCached?.()) this.cellLayer.clearCache();
+    if (!this.editMode) {
+      // pixelRatio 1: cache komt overeen met stage-coords (CELL=24).
+      this.cellLayer.cache({ pixelRatio: 1 });
+    }
+    this.cellLayer.batchDraw();
   }
 
   // ── Achtergrond-afbeelding ────────────────────────────────────────
@@ -770,11 +792,17 @@ export class YardRenderer {
         zakOverrideColor || area?.color || undefined,
       );
       const isZakAnchor = cell.cell_type === 'zak' && !!cell.meta?.zakAnchor;
-      // Bunker/custom-cellen: rects 0.6 px overlap zodat er geen subpixel-naden
-      // tussen aangrenzende cellen zichtbaar zijn (anders zie je een raster
-      // door een grote bunker). Voor zakken/walls/container/afval houden we
-      // strikte cel-grenzen, want die hebben juist een herkenbare structuur.
-      const overlap = (cell.cell_type === 'bunker' || cell.cell_type === 'custom') ? 0.6 : 0;
+      // Bunker/custom/container/afval-cellen: rects 0.6 px overlap zodat er
+      // geen subpixel-naden tussen aangrenzende cellen zichtbaar zijn (anders
+      // zie je een raster door een grote bunker / container / afvalvlak).
+      // Walls hebben hun eigen baksteen-pattern, zak-anchors hebben een eigen
+      // edge-systeem.
+      const overlap = (
+        cell.cell_type === 'bunker' ||
+        cell.cell_type === 'custom' ||
+        cell.cell_type === 'container' ||
+        cell.cell_type === 'afval'
+      ) ? 0.6 : 0;
       const rectW = isZakAnchor ? 2 * CELL : CELL + overlap;
       const rectH = isZakAnchor ? 2 * CELL : CELL + overlap;
 
@@ -1176,8 +1204,6 @@ export class YardRenderer {
       }
       if (n === 0) continue;
 
-      const isContainerOrAfval = area.area_type === 'container' || area.area_type === 'afval';
-
       let lbl = this.areaLabels.get(aid);
       if (!lbl) {
         lbl = new Konva.Text({
@@ -1192,78 +1218,75 @@ export class YardRenderer {
       lbl.offsetX(0); lbl.offsetY(0);
 
       if (isZak) {
+        // Zak-rijen: label onder de onderste cel
         lbl.fontStyle('bold');
-        // Onder de onderste rij, gehorizontaal-gecentreerd op de zak-rij.
-        const fontSize = 11;
-        const labelW = (maxC - minC + 1) * CELL;
-        const labelX = minC * CELL;
-        const labelY = (maxR + 1) * CELL + 2;
-        lbl.fontSize(fontSize);
+        lbl.fontSize(11);
         lbl.fill('#000');
         lbl.strokeEnabled(false);
         lbl.shadowColor('rgba(255,255,255,0.9)');
         lbl.shadowBlur(2);
         lbl.shadowOpacity(1);
-        lbl.x(labelX);
-        lbl.y(labelY);
-        lbl.width(labelW);
-      } else if (isContainerOrAfval) {
-        // Tekst gecentreerd in het vlak, zo groot mogelijk zonder buiten het veld te komen.
-        const areaW = (maxC - minC + 1) * CELL;
-        const areaH = (maxR - minR + 1) * CELL;
-        const centerX = minC * CELL;
-        const centerY = minR * CELL;
-        // Schat fontSize: breedte / aantal karakters, maar niet groter dan hoogte
-        const textLen = Math.max(1, displayName.length);
-        const maxByWidth = (areaW * 1.4) / textLen;
-        const maxByHeight = areaH * 0.6;
-        const fontSize = Math.max(12, Math.min(maxByWidth, maxByHeight, 60));
-        lbl.fontSize(fontSize);
-        lbl.fontStyle('900 bold');
-        lbl.fill('#fff');
-        lbl.strokeEnabled(true);
-        lbl.stroke('#000');
-        lbl.strokeWidth(Math.max(0.8, fontSize * 0.06));
-        lbl.fillAfterStrokeEnabled(true);
-        lbl.shadowOpacity(0);
-        lbl.shadowBlur(0);
-        lbl.x(centerX);
-        lbl.y(centerY + (areaH - fontSize) / 2);
-        lbl.width(areaW);
-        lbl.align('center');
-        lbl.verticalAlign('middle');
-      } else {
-        // Bunker/custom areas: tekst schaalt mee met vlakgrootte, gecentreerd.
-        // Geen auto-wrap (wrap: 'none') — anders splits Konva "Augustine (14)"
-        // op de spatie wanneer de fontSize-schatting iets te ruim is, en zien
-        // we 3 regels i.p.v. 2 die niet meer netjes centreren.
-        // Bold karakter-breedte ≈ 0.7 × fontSize voor een veilige schatting.
-        const areaW = (maxC - minC + 1) * CELL;
-        const areaH = (maxR - minR + 1) * CELL;
-        const centerX = minC * CELL;
-        const centerY = minR * CELL;
-        const lines = displayName.split('\n');
-        const longestLine = Math.max(...lines.map((l) => l.length), 1);
-        const PAD = 0.92;                       // 8% padding aan elke kant
-        const CHAR_W = 0.7;                     // bold-karakter breedte/fontSize ratio
-        const LINE_H = 1.15;                    // line-height factor
-        const fsByW = (areaW * PAD) / (longestLine * CHAR_W);
-        const fsByH = (areaH * PAD) / (lines.length * LINE_H);
-        const fontSize = Math.max(9, Math.min(fsByW, fsByH, 80));
-        lbl.fontSize(fontSize);
-        lbl.fontStyle('900 bold');
-        lbl.fill('#fff');
-        lbl.strokeEnabled(true);
-        lbl.stroke('#000');
-        lbl.strokeWidth(Math.max(0.6, fontSize * 0.06));
-        lbl.fillAfterStrokeEnabled(true);
-        lbl.shadowColor('rgba(0,0,0,0.55)');
-        lbl.shadowBlur(Math.max(2, fontSize * 0.08));
-        lbl.shadowOpacity(0.7);
-        lbl.lineHeight(LINE_H);
         lbl.wrap('none');
-        lbl.x(centerX);
-        lbl.y(centerY);
+        lbl.rotation(0);
+        lbl.offsetX(0);
+        lbl.offsetY(0);
+        lbl.x(minC * CELL);
+        lbl.y((maxR + 1) * CELL + 2);
+        lbl.width((maxC - minC + 1) * CELL);
+        lbl.height(14);
+        lbl.align('center');
+        lbl.verticalAlign('top');
+      } else {
+        // Alle andere types (bunker, custom, container, afval):
+        // Tekst gecentreerd in de bounding box van het vlak.
+        // fontSize wordt gemeten met getTextWidth() en teruggeschaald
+        // zodat de tekst altijd binnen het vlak past.
+        const areaW = (maxC - minC + 1) * CELL;
+        const areaH = (maxR - minR + 1) * CELL;
+        const lines = displayName.split('\n');
+        const nLines = lines.length;
+        const LH = 1.2;
+
+        // Stap 1: begin met een grote fontSize
+        let fs = Math.min(areaH / (nLines * LH), areaW, 200);
+        lbl.fontStyle('900 bold');
+        lbl.fontSize(fs);
+        lbl.lineHeight(LH);
+        lbl.wrap('none');
+
+        // Stap 2: meet de breedste regel
+        let widest = 0;
+        for (const line of lines) {
+          lbl.text(line);
+          widest = Math.max(widest, lbl.getTextWidth());
+        }
+        lbl.text(displayName);
+
+        // Stap 3: schaal terug zodat tekst in 85% van het vlak past
+        if (widest > areaW * 0.85) {
+          fs = fs * (areaW * 0.85) / widest;
+        }
+        if (fs * nLines * LH > areaH * 0.85) {
+          fs = (areaH * 0.85) / (nLines * LH);
+        }
+        fs = Math.max(8, Math.min(fs, 200));
+
+        // Stap 4: pas alle properties toe — reset alles expliciet
+        lbl.fontSize(fs);
+        lbl.fill('#fff');
+        lbl.strokeEnabled(true);
+        lbl.stroke('#000');
+        lbl.strokeWidth(Math.min(2, Math.max(0.5, fs * 0.04)));
+        lbl.fillAfterStrokeEnabled(true);
+        lbl.shadowColor('rgba(0,0,0,0.4)');
+        lbl.shadowBlur(2);
+        lbl.shadowOpacity(0.5);
+        lbl.wrap('none');
+        lbl.rotation(0);
+        lbl.offsetX(0);
+        lbl.offsetY(0);
+        lbl.x(minC * CELL);
+        lbl.y(minR * CELL);
         lbl.width(areaW);
         lbl.height(areaH);
         lbl.align('center');
@@ -1326,6 +1349,73 @@ export class YardRenderer {
       }
     }
 
+    // ── Per-area outlines (container / afval / custom) ─────────────
+    // Eén zwarte buitenrand per area zodat aaneengesloten cellen visueel
+    // één vlak vormen. We bouwen line-segmenten alleen voor cell-zijdes
+    // waar geen buurcel binnen dezelfde area zit.
+    const OUTLINE_TYPES = new Set(['container', 'afval', 'custom']);
+    const outlineAreaIds = new Set<number | string>();
+    for (const [aid, keys] of areaCells) {
+      const area = areas.get(aid);
+      if (!area || !OUTLINE_TYPES.has(area.area_type)) continue;
+      outlineAreaIds.add(aid);
+
+      // Verzamel segmenten — flat list van [x1,y1,x2,y2] per zijde.
+      const segs: number[][] = [];
+      for (const k of keys) {
+        const cell = cells.get(k);
+        if (!cell) continue;
+        const c = cell.col, r = cell.row;
+        const x0 = c * CELL, y0 = r * CELL;
+        const x1 = x0 + CELL, y1 = y0 + CELL;
+        if (!keys.has(`${c},${r - 1}`)) segs.push([x0, y0, x1, y0]); // top
+        if (!keys.has(`${c + 1},${r}`)) segs.push([x1, y0, x1, y1]); // right
+        if (!keys.has(`${c},${r + 1}`)) segs.push([x0, y1, x1, y1]); // bottom
+        if (!keys.has(`${c - 1},${r}`)) segs.push([x0, y0, x0, y1]); // left
+      }
+
+      let group = this.areaOutlines.get(aid);
+      if (!group) {
+        group = new Konva.Group({ listening: false });
+        this.uiLayer.add(group);
+        this.areaOutlines.set(aid, group);
+      }
+      const lines = group.getChildren() as unknown as Konva.Line[];
+      // Hergebruik bestaande Line children, voeg toe of verberg overschot.
+      while (lines.length < segs.length) {
+        const ln = new Konva.Line({
+          stroke: '#000', strokeWidth: 0.6,
+          listening: false, perfectDrawEnabled: false,
+        });
+        group.add(ln);
+      }
+      const groupChildren = group.getChildren();
+      for (let i = 0; i < groupChildren.length; i++) {
+        const ln = groupChildren[i] as unknown as Konva.Line;
+        if (i < segs.length) {
+          ln.points(segs[i]);
+          ln.visible(true);
+        } else {
+          ln.visible(false);
+        }
+      }
+    }
+    // Opruimen: outlines van areas die niet meer bestaan of niet (meer) gelden
+    for (const [aid, g] of this.areaOutlines) {
+      if (!outlineAreaIds.has(aid)) {
+        g.destroy();
+        this.areaOutlines.delete(aid);
+      }
+    }
+
+    // In overzicht-mode: re-cache de cellLayer na data-mutatie. Eerst
+    // expliciet clearCache() — sommige Konva-versies hergebruiken de oude
+    // cache als je cache() aanroept terwijl 'm al actief is, waardoor
+    // mutaties (bv. zak-codes na picker → nieuwe fill) onzichtbaar blijven.
+    if (this.cellLayer.isCached?.()) this.cellLayer.clearCache();
+    if (!this.editMode) {
+      this.cellLayer.cache({ pixelRatio: 1 });
+    }
     this.cellLayer.batchDraw();
     this.labelLayer.batchDraw();
     this.uiLayer.batchDraw();
@@ -1962,6 +2052,10 @@ export class YardRenderer {
             row2: Math.floor(rect.row2 / 2) * 2 + 1,
           };
         }
+        // Bewaar selectionStart VÓÓR het op null te zetten — onViewSelect
+        // hieronder heeft 'm nodig om te bepalen wat de intent van de drag is
+        // (start IN vlak = portion-delete; start BUITEN = nieuw vlak).
+        const startSnapshot = this.selectionStart;
         this.selectionSnap2x2 = false;
         this.isSelecting = false;
         this.selectionStart = null;
@@ -1977,7 +2071,7 @@ export class YardRenderer {
           const h = rect.row2 - rect.row1 + 1;
           if (w > 1 || h > 1) {
             (this as any).__viewSelectTime = Date.now();
-            this.opts.onViewSelect(rect);
+            this.opts.onViewSelect(rect, startSnapshot);
           }
         } else {
           // Legacy: bulk-paint via select (achteraf alle cellen sturen)

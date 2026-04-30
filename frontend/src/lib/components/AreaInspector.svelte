@@ -1,6 +1,6 @@
 <script lang="ts">
   import { areasStore, cellsStore, upsertArea, deleteArea, upsertCells, nextTempId } from '../stores/state';
-  import { inspectorAreaId, modeStore, authStore, toast, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore } from '../stores/ui';
+  import { inspectorAreaId, modeStore, authStore, toast, pendingSubAreaId, pendingSelectionStore, subSelectionCellsStore, stripMaterialTLSuffix } from '../stores/ui';
   import type { AreaRow } from '../db/dexie';
   import { schedulePush } from '../sync/engine';
   import { useStore } from '../useStore.svelte';
@@ -73,7 +73,10 @@
       editName = '';
       editColor = '#e67e22';
       editMaterial = sel?.mergeIntoMaterial ?? '';
-      editQuantity = sel?.mergeIntoQuantity != null ? String(sel.mergeIntoQuantity) : '';
+      // Aantal partijen: bij merge altijd LEEG starten — gebruiker vult het
+      // aantal in dat alleen geldt voor het nieuw-getekende vlak. Op save
+      // tellen we dat op bij het bestaande aantal van de aangrenzende area.
+      editQuantity = '';
       editDate = sel?.mergeIntoDate
         ?? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Amsterdam' }).format(new Date());
       applyToFuture = false;
@@ -272,6 +275,168 @@
     close();
   }
 
+  // ── Delete-with-quantity flow ───────────────────────────────────
+  // Wanneer cellen uit één of meer sub-areas met materiaal verwijderd
+  // worden, vraagt het paneel per area aan de gebruiker hoeveel partijen
+  // er overblijven. Eén popup met N input-velden (één per geraakte area).
+  type DeleteEntry = {
+    areaId: number | string;
+    label: string;
+    currentQty: number;
+    newQtyStr: string;
+    cellsToDelete: Array<{ col: number; row: number; cell_type: string; area_id: number | string | null }>;
+    totalCells: number;        // alle cellen die de area NU heeft
+    cellsRemaining: number;    // = totalCells - cellsToDelete.length (na verwijderen)
+  };
+  let deleteEntries: DeleteEntry[] = $state([]);
+
+  // Bouw deleteEntries op basis van de huidige selectie. Returns of er
+  // material-areas in de selectie zaten (en dus een qty-form nodig is).
+  function prepareDeleteEntries(): boolean {
+    const cellsList: Array<{ col: number; row: number; cell_type: string; area_id: number | string | null }> = [];
+    if (isSubSel && area) {
+      const subKeys = subSelCells.value || [];
+      const cm = cellsStore.get();
+      for (const sc of subKeys) {
+        const c = cm.get(`${sc.col},${sc.row}`);
+        if (c) cellsList.push({ col: c.col, row: c.row, cell_type: c.cell_type, area_id: c.area_id ?? null });
+      }
+    } else if (isPending) {
+      const sel = pendingSel.value;
+      if (!sel) return false;
+      cellsList.push(...sel.cells);
+    } else {
+      return false;
+    }
+
+    const am = areasStore.get();
+    const cm = cellsStore.get();
+    // Tel totaal aantal cellen per area (om "remaining" te kunnen tonen)
+    const totalByArea = new Map<number | string, number>();
+    for (const c of cm.values()) {
+      if (c.area_id != null) totalByArea.set(c.area_id, (totalByArea.get(c.area_id) || 0) + 1);
+    }
+    const byArea = new Map<number | string, DeleteEntry>();
+    for (const c of cellsList) {
+      if (c.area_id == null) continue;
+      const a = am.get(c.area_id);
+      if (!a || !a.material_name) continue;
+      let entry = byArea.get(c.area_id);
+      if (!entry) {
+        const qty = Number(a.metadata?.quantity) || 0;
+        const total = totalByArea.get(c.area_id) || 0;
+        entry = {
+          areaId: c.area_id,
+          label: stripMaterialTLSuffix(a.material_name) || a.material_name,
+          currentQty: qty,
+          newQtyStr: String(qty),
+          cellsToDelete: [],
+          totalCells: total,
+          cellsRemaining: total,
+        };
+        byArea.set(c.area_id, entry);
+      }
+      entry.cellsToDelete.push(c);
+    }
+    // Bereken remaining nu we per entry weten hoeveel cellen weggaan
+    for (const entry of byArea.values()) {
+      entry.cellsRemaining = entry.totalCells - entry.cellsToDelete.length;
+    }
+    deleteEntries = [...byArea.values()];
+    return deleteEntries.length > 0;
+  }
+
+  async function confirmDeleteWithQty() {
+    if (deleteEntries.length === 0) { close(); return; }
+    const cm = cellsStore.get();
+    const am = areasStore.get();
+    const ts = Date.now();
+
+    for (const entry of deleteEntries) {
+      const newQty = Number(entry.newQtyStr) || 0;
+      const a = am.get(entry.areaId);
+      if (!a) continue;
+
+      // Update area's metadata.quantity
+      await upsertArea({
+        ...a,
+        metadata: { ...a.metadata, quantity: newQty || null, lastFilled: ts },
+        updated_at: ts,
+      });
+
+      // Find the parent bunker (most adjacent same-cell-type area without material)
+      const counts = new Map<number | string, number>();
+      for (const c of cm.values()) {
+        if (c.area_id !== entry.areaId) continue;
+        for (const [dc, dr] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as Array<[number, number]>) {
+          const nb = cm.get(`${c.col + dc},${c.row + dr}`);
+          if (!nb || nb.area_id == null || nb.area_id === entry.areaId) continue;
+          if (nb.cell_type !== c.cell_type) continue;
+          const nbArea = am.get(nb.area_id);
+          if (nbArea && !nbArea.material_name) {
+            counts.set(nb.area_id, (counts.get(nb.area_id) || 0) + 1);
+          }
+        }
+      }
+      let parentId: number | string | null = null;
+      let maxN = 0;
+      for (const [aid, cnt] of counts) {
+        if (cnt > maxN) { maxN = cnt; parentId = aid; }
+      }
+
+      // Verplaats cellen naar parent
+      await upsertCells(entry.cellsToDelete.map((c) => {
+        const orig = cm.get(`${c.col},${c.row}`);
+        return {
+          col: c.col,
+          row: c.row,
+          cell_type: orig?.cell_type ?? c.cell_type,
+          area_id: parentId,
+          label: '',
+          meta: orig?.meta || {},
+          updated_at: ts,
+        };
+      }));
+    }
+
+    // Cleanup: lege sub-areas verwijderen
+    const cellsAfter = cellsStore.get();
+    for (const entry of deleteEntries) {
+      let stillUsed = false;
+      for (const c of cellsAfter.values()) {
+        if (c.area_id === entry.areaId) { stillUsed = true; break; }
+      }
+      if (!stillUsed) await deleteArea(entry.areaId);
+    }
+
+    schedulePush();
+    toast(deleteEntries.length === 1
+      ? `${deleteEntries[0].label}: ${deleteEntries[0].cellsToDelete.length} cel${deleteEntries[0].cellsToDelete.length === 1 ? '' : 'len'} verwijderd`
+      : `${deleteEntries.length} vlakken bijgewerkt`);
+    deleteEntries = [];
+    close();
+  }
+
+  // Klikt op "Verwijderen": direct toepassen — `editQuantity` bovenin is
+  // leidend. Cellen verplaatsen naar parent + partij-aantal naar editQuantity.
+  // Geen aparte bevestigings-form (die zou alleen dezelfde input dupliceren).
+  async function startDeleteWithQty() {
+    if (!prepareDeleteEntries()) {
+      // Geen material in selectie → bestaande silent flow
+      if (isPending) removePendingSelectionCells();
+      else if (isSubSel) removeSubSelection();
+      else removeContent();
+      return;
+    }
+    // Bind: pas editQuantity toe op alle entries (in praktijk altijd 1 entry
+    // omdat de filter selectie tot één area beperkt).
+    const qtyInput = editQuantity ? String(editQuantity).trim() : '';
+    for (const entry of deleteEntries) {
+      entry.newQtyStr = qtyInput;
+    }
+    await confirmDeleteWithQty();
+  }
+
   function formatLastFilled(ts: number | undefined): string {
     if (!ts) return '—';
     try {
@@ -310,21 +475,36 @@
       const sel = pendingSel.value;
       if (!sel || sel.cells.length === 0) { close(); return; }
 
+      // Mergen alleen wanneer de gebruiker het VOORGESTELDE materiaal niet
+      // heeft veranderd. Anders is dit per definitie een nieuw vlak — ook al
+      // ligt het tegen een bestaande area aan. Vergelijk normaliseerd zodat
+      // null/'' als gelijk worden gezien.
+      const norm = (s: string | null | undefined) => (s || '').trim();
+      const shouldMerge =
+        sel.mergeIntoAreaId != null && norm(matVal) === norm(sel.mergeIntoMaterial);
+
       let targetAreaId: number | string;
-      if (sel.mergeIntoAreaId != null) {
+      if (shouldMerge) {
         // Merge: voeg cellen toe aan bestaande sub-area + update metadata.
-        const existing = areasStore.get().get(sel.mergeIntoAreaId);
+        // Aantal partijen wordt opgeteld bij het bestaande aantal — het
+        // input-veld hierboven geldt UITSLUITEND voor het nieuw-getekende
+        // vlak. Wanneer er niets is ingevuld telt 0 erbij (geen wijziging).
+        const existing = areasStore.get().get(sel.mergeIntoAreaId!);
         if (!existing) { close(); return; }
+        const existingQty = Number(existing.metadata?.quantity) || 0;
+        const addQty = qty || 0;
+        const totalQty = existingQty + addQty;
         await upsertArea({
           ...existing,
           material_name: matVal,
           color: matVal ? null : existing.color,
-          metadata: { ...existing.metadata, quantity: qty, date: dt, lastFilled: ts },
+          metadata: { ...existing.metadata, quantity: totalQty || null, date: dt, lastFilled: ts },
           updated_at: ts,
         });
         targetAreaId = existing.id;
       } else {
-        // Nieuw: maak nieuwe sub-area aan
+        // Nieuw: maak nieuwe sub-area aan (ook als selectie een buurvlak
+        // had — gebruiker heeft een ander materiaal gekozen, dus moet apart).
         const newArea: AreaRow = {
           id: nextTempId(),
           name: '',
@@ -507,15 +687,15 @@
         <div class="drag-handle"></div>
         <div class="head-row">
           <div>
-            <div class="hd-type">{headerType}</div>
-            <div class="hd-name">{headerName}</div>
+            {#if mode.value === 'layout'}
+              <div class="hd-type">{headerType}</div>
+              <div class="hd-name">{headerName}</div>
+            {:else}
+              <div class="hd-name">{currentMaterial ? currentMaterial.replace(/\s+[STst]$/, '').trim() : 'Materiaal kiezen'}</div>
+            {/if}
             <div class="hd-sub">
-              {#if mode.value !== 'layout'}
-                {#if !isPending && currentMaterial}
-                  {currentMaterial} · {formatPeriod(currentPeriod.value)}
-                {:else}
-                  {formatPeriod(currentPeriod.value)}
-                {/if}
+              {#if mode.value === 'layout'}
+                <!-- geen periode in indeling -->
               {/if}
             </div>
           </div>
@@ -524,19 +704,19 @@
       </div>
 
       <div class="body">
-        <div class="row">
-          <div class="kv"><span class="k">Cellen</span><span class="v">{cellCount}</span></div>
-          {#if isSubSel}
-            <div class="kv"><span class="k">Selectie</span><span class="v sel-cnt">{subSelCount}</span></div>
-          {/if}
-          {#if mode.value !== 'layout'}
-            <div class="kv"><span class="k">Periode</span><span class="v">{formatPeriod(currentPeriod.value)}</span></div>
-            {#if !isPending && currentMaterial}
-              <div class="kv"><span class="k">Materiaal</span><span class="v mat">{currentMaterial}</span></div>
+        {#if mode.value === 'layout'}
+          <div class="row">
+            <div class="kv"><span class="k">Cellen</span><span class="v">{cellCount}</span></div>
+          </div>
+        {:else}
+          <div class="row">
+            <div class="kv"><span class="k">Cellen</span><span class="v">{cellCount}</span></div>
+            {#if isSubSel}
+              <div class="kv"><span class="k">Selectie</span><span class="v sel-cnt">{subSelCount}</span></div>
             {/if}
-          {/if}
-        </div>
-        {#if !isPending && area?.metadata?.lastFilled}
+          </div>
+        {/if}
+        {#if mode.value === 'layout' && !isPending && area?.metadata?.lastFilled}
           <div class="row">
             <div class="kv"><span class="k">Laatst gewijzigd</span><span class="v">{formatLastFilled(area.metadata.lastFilled)}</span></div>
           </div>
@@ -557,7 +737,7 @@
             <button class="btn danger" onclick={removeArea}>🗑 Verwijderen</button>
             <button class="btn primary" onclick={saveLayout}>Opslaan</button>
           </div>
-        {:else if mode.value === 'view' && canEdit && supportsMaterial}
+        {:else if mode.value === 'view' && supportsMaterial}
           <hr />
           {#if !isPending && area?.area_type === 'zak'}
             <label>
@@ -572,7 +752,10 @@
                 >{line}</button>
               {/each}
             </div>
-          {:else}
+          {:else if !isSubSel}
+            <!-- Verberg materiaal-picker bij sub-selection (= portie van bestaande
+                 partij): de gebruiker mag het materiaal niet wijzigen, alleen
+                 de partij-hoeveelheid aanpassen of cellen verwijderen. -->
             <label>
               <span>Materiaal</span>
               <MaterialPicker bind:value={editMaterial} showBaseName={true} />
@@ -581,6 +764,13 @@
           <label>
             <span>Aantal partijen</span>
             <input type="number" bind:value={editQuantity} placeholder="Bijv. 12" min="0" />
+            {#if isPending && pendingSel.value?.mergeIntoAreaId != null && pendingSel.value?.mergeIntoQuantity != null && (editMaterial || '').trim() === (pendingSel.value?.mergeIntoMaterial || '').trim()}
+              {@const existingQ = Number(pendingSel.value.mergeIntoQuantity) || 0}
+              {@const addQ = Number(editQuantity) || 0}
+              <small class="merge-hint">
+                Wordt opgeteld bij {existingQ} bestaand → totaal {existingQ + addQ}
+              </small>
+            {/if}
           </label>
           <label>
             <span>Datum</span>
@@ -595,7 +785,7 @@
                   <button class="btn" onclick={() => { confirmingDelete = false; }}>Nee</button>
                 </div>
               {:else}
-                <button class="btn danger" onclick={() => { confirmingDelete = true; }}>🗑 Verwijderen</button>
+                <button class="btn danger" onclick={startDeleteWithQty}>🗑 Verwijderen</button>
                 <button class="btn primary" onclick={saveContent}>Opslaan</button>
               {/if}
             {:else if confirmingDelete}
@@ -608,18 +798,17 @@
                 <button class="btn" onclick={() => { confirmingDelete = false; }}>Nee</button>
               </div>
             {:else if isSubSel}
-              <button class="btn danger" onclick={() => { confirmingDelete = true; }}>
+              <button class="btn danger" onclick={startDeleteWithQty}>
                 🗑 Verwijder {subSelCount} cel{subSelCount === 1 ? '' : 'len'}
               </button>
               <button class="btn primary" onclick={saveContent}>Opslaan</button>
             {:else}
-              <button class="btn danger" onclick={() => { confirmingDelete = true; }}>🗑 Verwijderen</button>
+              <button class="btn danger" onclick={startDeleteWithQty}>🗑 Verwijderen</button>
               <button class="btn primary" onclick={saveContent}>Opslaan</button>
             {/if}
           </div>
-        {:else if !canEdit}
-          <!-- Anonieme bezoeker: alleen-lezen — geen materiaal-keuze, geen knoppen -->
-          <div class="readonly-note">Log in om wijzigingen te maken.</div>
+        {:else if !canEdit && mode.value === 'layout'}
+          <div class="readonly-note">Log in om de indeling te wijzigen.</div>
         {/if}
       </div>
     </div>
@@ -627,6 +816,62 @@
 {/if}
 
 <style>
+  .merge-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #5d6d7e;
+    font-style: italic;
+  }
+  .qty-form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .qty-prompt {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: #2c3e50;
+    font-weight: 600;
+  }
+  .qty-row {
+    display: grid;
+    grid-template-columns: 1fr 80px auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .qty-label {
+    font-size: 13px;
+    color: #2c3e50;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+  .qty-cells {
+    font-size: 11px;
+    color: #95a5a6;
+    font-weight: normal;
+  }
+  .qty-row.warning {
+    background: rgba(231, 76, 60, 0.08);
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin: 0 -8px;
+  }
+  .qty-row.warning .qty-cells {
+    color: #c0392b;
+    font-weight: 700;
+  }
+  .qty-row input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .qty-hint {
+    font-size: 11px;
+    color: #95a5a6;
+    white-space: nowrap;
+  }
   .overlay {
     position: fixed; inset: 0; z-index: 1500;
     background: rgba(15,23,42,0.4);

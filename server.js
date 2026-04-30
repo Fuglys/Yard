@@ -1,9 +1,23 @@
 // Yard Manager v2 — Express entry point
-require('dotenv').config();
+const path = require('path');
+(() => {
+  // Load .env from the main repo root, even when running from a git worktree.
+  // Falls back to local .env if git is unavailable.
+  try {
+    const { execSync } = require('child_process');
+    const commonDir = execSync('git rev-parse --git-common-dir', {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+    const repoRoot = path.dirname(path.resolve(__dirname, commonDir));
+    require('dotenv').config({ path: path.join(repoRoot, '.env') });
+  } catch {
+    require('dotenv').config();
+  }
+})();
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 
 const { yardPool } = require('./lib/db');
 const bus = require('./lib/eventBus');

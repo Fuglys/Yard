@@ -73,6 +73,14 @@ async function pushNow(): Promise<void> {
       console.warn('[sync] server reported failed rows:', result.errors);
     }
 
+    // Conflict-detectie: server meldt apart hoeveel upserts verloren hebben
+    // van een nieuwere versie op de server. Gebruiker krijgt een toast zodat
+    // hij weet dat een offline-edit overschreven is door iemand anders.
+    const conflicts = (result.areas?.conflicts || 0) + (result.cells?.conflicts || 0);
+    if (conflicts > 0) {
+      toast(`${conflicts} wijziging${conflicts === 1 ? '' : 'en'} overschreven — server had nieuwere versie`);
+    }
+
     // Vervang temp IDs door server IDs
     if (result.areas?.idMap && Object.keys(result.areas.idMap).length) {
       await applyIdMap(result.areas.idMap);
@@ -225,4 +233,31 @@ export async function startSync() {
 
   // Periodieke push als fallback
   setInterval(() => { if (navigator.onLine) pushNow(); }, 5000);
+
+  // Health-ping elke 15s — `navigator.onLine` is onbetrouwbaar (kan 'true'
+  // zijn op wifi zonder echte internet). Een echte HEAD/GET naar /api/health
+  // bewijst dat de server bereikbaar is. Bij flip offline → online triggeren
+  // we een pull + push zodat alles direct ingehaald wordt.
+  let healthOk = navigator.onLine;
+  setInterval(async () => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch('/api/health', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(t);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const wasOffline = !healthOk;
+      healthOk = true;
+      onlineStore.set(true);
+      if (wasOffline) {
+        // Net teruggekomen — haal diff op + flush pending. SSE re-connecten.
+        pullDiff();
+        schedulePush(200);
+        if (!sse) connectSSE();
+      }
+    } catch {
+      healthOk = false;
+      onlineStore.set(false);
+    }
+  }, 15000);
 }

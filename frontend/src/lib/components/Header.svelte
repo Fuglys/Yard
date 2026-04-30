@@ -98,18 +98,16 @@
     {/if}
   </div>
 
-  {#if canEdit && mode.value === 'view'}
-    <div class="hdr-traylijnen">
-      <label class="tl-slot">
-        <span class="tl-name">TL1</span>
-        <MaterialPicker bind:value={tl1Value} placeholder="Kies materiaal" showBaseName={true} />
-      </label>
-      <label class="tl-slot">
-        <span class="tl-name">TL2</span>
-        <MaterialPicker bind:value={tl2Value} placeholder="Kies materiaal" showBaseName={true} />
-      </label>
-    </div>
-  {/if}
+  <div class="hdr-traylijnen">
+    <label class="tl-slot">
+      <span class="tl-name">TL1</span>
+      <MaterialPicker bind:value={tl1Value} placeholder="Kies materiaal" showBaseName={true} />
+    </label>
+    <label class="tl-slot">
+      <span class="tl-name">TL2</span>
+      <MaterialPicker bind:value={tl2Value} placeholder="Kies materiaal" showBaseName={true} />
+    </label>
+  </div>
 
   <div class="hdr-right">
     <div class="status" title={online.value ? 'Online' : 'Offline — wijzigingen worden lokaal opgeslagen'}>
@@ -169,7 +167,7 @@
     min-width: 130px; border-radius: 7px;
   }
   @media (max-width: 1100px) {
-    .hdr-traylijnen { display: none; }
+    .hdr-traylijnen { font-size: 11px; }
   }
 
   .logo { display: flex; align-items: center; gap: 8px; }

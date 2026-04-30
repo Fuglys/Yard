@@ -217,6 +217,19 @@ export function stripMaterialTLSuffix(name: string | null | undefined): string {
 // Inline place+assign flow: id van het laatst geplaatste vlak
 export const lastPlacedAreaId = createStore<number | string | null>(null);
 
+// Voorraad-paneel (rechts in Overzicht-mode) open/dicht. Persistent.
+const INVENTORY_PANEL_KEY = 'yard_inventory_panel_open';
+function loadInventoryPanelInitial(): boolean {
+  try {
+    const raw = localStorage.getItem(INVENTORY_PANEL_KEY);
+    return raw === 'true';
+  } catch { return false; }
+}
+export const inventoryPanelOpen = createStore<boolean>(loadInventoryPanelInitial());
+inventoryPanelOpen.subscribe((v) => {
+  try { localStorage.setItem(INVENTORY_PANEL_KEY, v ? 'true' : 'false'); } catch {}
+});
+
 // Bulk hertoewijzen drawer (open/dicht)
 export const bulkDrawerOpen = createStore<boolean>(false);
 

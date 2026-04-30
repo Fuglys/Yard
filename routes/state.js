@@ -67,8 +67,8 @@ router.post('/sync/v2', async (req, res) => {
 
   const client = await yardPool.connect();
   const result = {
-    areas: { applied: 0, skipped: 0, failed: 0, idMap: {} },
-    cells: { applied: 0, skipped: 0, failed: 0 },
+    areas: { applied: 0, skipped: 0, conflicts: 0, failed: 0, idMap: {} },
+    cells: { applied: 0, skipped: 0, conflicts: 0, failed: 0 },
     errors: [],
   };
 
@@ -115,7 +115,7 @@ router.post('/sync/v2', async (req, res) => {
                a.material_name || null, a.material_id || null,
                a.metadata || {}, updated_at]
             );
-            if (r.rowCount > 0) result.areas.applied++; else result.areas.skipped++;
+            if (r.rowCount > 0) result.areas.applied++; else { result.areas.skipped++; result.areas.conflicts++; }
           }
         }
       } catch (rowErr) {
@@ -181,7 +181,7 @@ router.post('/sync/v2', async (req, res) => {
              String(c.label || '').slice(0, 80),
              c.meta || {}, updated_at]
           );
-          if (r.rowCount > 0) result.cells.applied++; else result.cells.skipped++;
+          if (r.rowCount > 0) result.cells.applied++; else { result.cells.skipped++; result.cells.conflicts++; }
         }
         await client.query(`RELEASE SAVEPOINT ${sp}`);
       } catch (rowErr) {
