@@ -1,6 +1,7 @@
 <script lang="ts">
   import { paintToolStore, lineLockStore, toast, backgroundImageStore, brushSizeStore, type PaintTool } from '../../stores/ui';
   import { useStore } from '../../useStore.svelte';
+  import { apiUrl } from '../../api';
   import { db } from '../../db/dexie';
   import { areasStore, cellsStore } from '../../stores/state';
   import { fullSync } from '../../sync/engine';
@@ -90,7 +91,7 @@
     if (!confirm('Weet je zeker dat je de VOLLEDIGE layout wilt wissen?\n\nAlle cellen, zakken, muren, bunkers — alles wordt verwijderd.\nDit kan NIET ongedaan gemaakt worden.')) return;
     try {
       // Wis server
-      const res = await fetch('/api/wipe-layout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch(apiUrl('/api/wipe-layout'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       if (!res.ok) throw new Error(`Server: ${res.status}`);
       // Wis lokale IndexedDB
       await db.transaction('rw', db.areas, db.cells, db.pending, async () => {

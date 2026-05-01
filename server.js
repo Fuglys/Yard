@@ -27,6 +27,7 @@ const PORT = process.env.PORT || 3006;
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json({ limit: '50mb' }));
+app.use('/yard', express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── v2 API ──────────────────────────────────────────────────────────────

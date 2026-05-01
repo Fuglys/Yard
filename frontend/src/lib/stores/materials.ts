@@ -1,5 +1,6 @@
 // Materials uit dagstart_db (gecached lokaal)
 import { db, getKV, setKV } from '../db/dexie';
+import { apiUrl } from '../api';
 
 type Listener<T> = (value: T) => void;
 function createStore<T>(initial: T) {
@@ -23,7 +24,7 @@ export async function loadMaterials() {
 
   // Dan vers ophalen vanaf server
   try {
-    const res = await fetch('/api/materials');
+    const res = await fetch(apiUrl('/api/materials'));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const fresh: Material[] = await res.json();
     materialsStore.set(fresh);

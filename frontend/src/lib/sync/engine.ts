@@ -2,6 +2,7 @@
 import { db, getKV, setKV } from '../db/dexie';
 import { applyServerDiff, applyIdMap, hydrate, pendingCount, onlineStore, lastSyncTs } from '../stores/state';
 import { toast } from '../stores/ui';
+import { apiUrl } from '../api';
 
 const CLIENT_ID = (() => {
   let id = localStorage.getItem('yardClientId');
@@ -57,7 +58,7 @@ async function pushNow(): Promise<void> {
 
     if (areas.length === 0 && cells.length === 0) return;
 
-    const res = await fetch('/api/sync/v2', {
+    const res = await fetch(apiUrl('/api/sync/v2'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId: CLIENT_ID, areas, cells }),
@@ -140,7 +141,7 @@ export async function pullDiff() {
 export async function fullSync() {
   if (!navigator.onLine) return;
   try {
-    const res = await fetch('/api/state');
+    const res = await fetch(apiUrl('/api/state'));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = await res.json();
     // Wis lokale state, herlaad
@@ -199,7 +200,7 @@ if (typeof window !== 'undefined') {
   (window as any).__yardWipeAll = async () => {
     if (!confirm('Server + ALLE tablets leegmaken? Niet ongedaan te maken.')) return;
     try {
-      const res = await fetch('/api/wipe-layout', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/wipe-layout'), { method: 'POST' });
       const j = await res.json();
       console.log('[wipe] server response:', j);
       // Lokaal ook (mocht SSE gemist worden)
@@ -243,7 +244,7 @@ export async function startSync() {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch('/api/health', { signal: ctrl.signal, cache: 'no-store' });
+      const res = await fetch(apiUrl('/api/health'), { signal: ctrl.signal, cache: 'no-store' });
       clearTimeout(t);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const wasOffline = !healthOk;
@@ -261,3 +262,4 @@ export async function startSync() {
     }
   }, 15000);
 }
+

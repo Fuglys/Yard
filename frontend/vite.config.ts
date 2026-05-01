@@ -15,7 +15,7 @@ export default defineConfig({
         theme_color: '#2c3e50',
         background_color: '#f0f2f5',
         display: 'standalone',
-        start_url: '/',
+        start_url: '/yard/',
         icons: [
           {
             src: 'icon-192.svg',
@@ -32,7 +32,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallback: '/index.html',
+        navigateFallback: '/yard/index.html',
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
@@ -62,6 +62,7 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  base: '/yard/',
   build: {
     // Build output gaat naar Express' public/ folder
     outDir: '../public',
